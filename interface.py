@@ -7,8 +7,10 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVB
 from PyQt6.QtCore import Qt, QDate, QSize, QTimer
 from PyQt6.QtGui import QIcon, QPixmap, QColor, QFont, QPalette, QAction
 
+from banco.bancoSQlite import BancoSQLite
 
-class MainWindow(QMainWindow):
+
+class MainWindow(QMainWindow, BancoSQLite):
     def __init__(self):
         super().__init__()
 
@@ -297,6 +299,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(companies_widget)
 
     def init_employees_screen(self):
+
         employees_widget = QWidget()
         layout = QVBoxLayout(employees_widget)
 
@@ -950,6 +953,18 @@ class MainWindow(QMainWindow):
 
         # Métodos para formulários e ações
 
+    from PyQt6.QtWidgets import (
+        QWidget, QVBoxLayout, QLabel, QFormLayout, QLineEdit,
+        QComboBox, QHBoxLayout, QPushButton
+    )
+    from PyQt6.QtCore import Qt
+
+    from PyQt6.QtWidgets import (
+        QWidget, QVBoxLayout, QLabel, QFormLayout, QLineEdit,
+        QComboBox, QHBoxLayout, QPushButton
+    )
+    from PyQt6.QtCore import Qt
+
     def show_add_company_form(self):
         dialog = QWidget(self, Qt.WindowType.Dialog)
         dialog.setWindowTitle("Adicionar Nova Empresa")
@@ -964,53 +979,99 @@ class MainWindow(QMainWindow):
 
         form = QFormLayout()
 
-        name = QLineEdit()
-        name.setPlaceholderText("Nome da empresa")
-        form.addRow("Nome:", name)
+        self.name_emp = QLineEdit()
+        self.name_emp.setPlaceholderText("Nome da empresa")
+        form.addRow("Nome:", self.name_emp)
 
-        cnpj = QLineEdit()
-        cnpj.setPlaceholderText("00.000.000/0000-00")
-        form.addRow("CNPJ:", cnpj)
+        self.cnpj = QLineEdit()
+        self.cnpj.setPlaceholderText("00.000.000/0000-00")
+        form.addRow("CNPJ:", self.cnpj)
 
-        address = QLineEdit()
-        address.setPlaceholderText("Endereço completo")
-        form.addRow("Endereço:", address)
+        self.address_emp = QLineEdit()
+        self.address_emp.setPlaceholderText("Endereço completo")
+        form.addRow("Endereço:", self.address_emp)
 
-        city = QLineEdit()
-        city.setPlaceholderText("Cidade")
-        form.addRow("Cidade:", city)
+        self.city_emp = QLineEdit()
+        self.city_emp.setPlaceholderText("Cidade")
+        form.addRow("Cidade:", self.city_emp)
 
-        state = QComboBox()
-        state.addItems(
+        self.estado_emp = QComboBox()
+        self.estado_emp.addItems(
             ["Selecione", "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB",
              "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"])
-        form.addRow("Estado:", state)
+        form.addRow("Estado:", self.estado_emp)
 
-        phone = QLineEdit()
-        phone.setPlaceholderText("(00) 0000-0000")
-        form.addRow("Telefone:", phone)
+        self.phone_emp = QLineEdit()
+        self.phone_emp.setPlaceholderText("(00) 0000-0000")
+        form.addRow("Telefone:", self.phone_emp)
 
-        email = QLineEdit()
-        email.setPlaceholderText("email@empresa.com")
-        form.addRow("Email:", email)
+        self.email = QLineEdit()
+        self.email.setPlaceholderText("email@empresa.com")
+        form.addRow("Email:", self.email)
 
-        layout.addLayout(form)
+        layout.addLayout(form)  # Adiciona o formulário ao layout principal
 
         buttons = QHBoxLayout()
+
+        def save_and_close():
+            self.save_data()
+            dialog.close()  # Fecha o diálogo após salvar
+
         save = QPushButton("Salvar")
-        save.clicked.connect(dialog.close)
+        save.setStyleSheet("background-color: #28a745; color: white; padding: 6px; border-radius: 4px;")
+        save.clicked.connect(save_and_close)
 
         cancel = QPushButton("Cancelar")
-        cancel.setStyleSheet("background-color: #6c757d;")
+        cancel.setStyleSheet("background-color: #dc3545; color: white; padding: 6px; border-radius: 4px;")
         cancel.clicked.connect(dialog.close)
 
         buttons.addWidget(save)
         buttons.addWidget(cancel)
 
-        layout.addLayout(buttons)
+        layout.addLayout(buttons)  # Adiciona os botões ao layout principal
 
         dialog.setLayout(layout)
+
+        self.name_emp.returnPressed.connect(lambda: self.cnpj.setFocus())
+        self.cnpj.returnPressed.connect(lambda: self.address_emp.setFocus())
+        self.address_emp.returnPressed.connect(lambda: self.city_emp.setFocus())
+        self.city_emp.returnPressed.connect(lambda: self.estado_emp.setFocus())
+        self.phone_emp.returnPressed.connect(lambda: self.email.setFocus())
+        self.email.returnPressed.connect(lambda: save.click())  # Pressionar Enter no email clica em "Salvar"
+
         dialog.show()
+
+    def save_data(self):
+        try:
+            coluna = ("nome", "cnpj", "endereco", "cidade", "estado", "telefone", "email")  # Colunas na ordem correta
+
+            nome = self.name_emp.text()
+            cnpj = self.cnpj.text()
+            endereco = self.address_emp.text()
+            cidade = self.city_emp.text()
+            estado = self.estado_emp.currentText()
+            telefone = self.phone_emp.text()
+            email = self.email.text()
+
+            # Criar a tabela com os campos na ordem correta
+            campos = {coluna[i]: "TEXT" for i in range(len(coluna))}
+            self.criar_tabela("cadastro_empresa", campos)
+
+            # Criar dicionário de dados
+            dados = {coluna[i]: valor or "NULL" for i, valor in
+                     enumerate([nome, cnpj, endereco, cidade, estado, telefone, email])}
+
+            # Verificação extra para evitar erro ao inserir no banco
+            if not cnpj.strip():
+                raise ValueError("O CNPJ não pode estar vazio.")
+
+            print(dados)  # Depuração
+
+            # Inserir ou atualizar os dados no banco de dados
+            self.inserir_ou_atualizar_registro("cadastro_empresa", dados, cnpj)
+
+        except Exception as e:
+            print(f"Ocorreu um erro ao cadastrar: {e}")
 
     def show_add_employee_form(self):
         dialog = QWidget(self, Qt.WindowType.Dialog)
@@ -1069,6 +1130,8 @@ class MainWindow(QMainWindow):
         professional_layout = QFormLayout(professional_tab)
 
         company = QComboBox()
+
+
         company.addItems(
             ["Selecione uma empresa", "TechSolutions LTDA", "Global Comércio S.A.", "Indústria Nacional LTDA"])
         professional_layout.addRow("Empresa:", company)
@@ -1185,11 +1248,14 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Configurações", "Configurações salvas com sucesso!")
 
     # Função principal para iniciar a aplicação
+
+
 def main():
-        app = QApplication(sys.argv)
-        window = MainWindow()
-        window.show()
-        sys.exit(app.exec())
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
 
 if __name__ == "__main__":
-        main()
+    main()

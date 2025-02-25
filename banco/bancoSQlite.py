@@ -270,3 +270,5 @@ class BancoSQLite:
             logger.info("Conexão com o banco de dados fechada com sucesso")
         except Exception as e:
             logger.error(f"Erro ao fechar conexão com o banco: {str(e)}")
+
+
