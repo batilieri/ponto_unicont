@@ -42,6 +42,7 @@ class BancoSQLite:
     """Classe para gerenciar operações com banco de dados SQLite."""
 
     def __init__(self):
+        super().__init__()
         """Inicializa a conexão com o banco de dados."""
         try:
             self.db_path = Path(__file__).parent.parent / "banco" / "ponto_uniconte.db"
@@ -226,7 +227,7 @@ class BancoSQLite:
             logger.error(f"Erro ao consultar registros em '{nome_tabela}': {str(e)}")
             return []
 
-    def listar_tabelas(self) -> List[str]:
+    def busca_dados_tabelas(self) -> List[str]:
         """
         Lista todas as tabelas do banco.
 
@@ -243,7 +244,7 @@ class BancoSQLite:
             logger.error(f"Erro ao listar tabelas: {str(e)}")
             return []
 
-    def obter_estrutura_tabela(self, nome_tabela: str) -> List[tuple]:
+    def estrutura_tabela(self, nome_tabela: str) -> List[tuple]:
         """
         Retorna a estrutura de uma tabela específica.
 
@@ -263,6 +264,27 @@ class BancoSQLite:
             logger.error(f"Erro ao obter estrutura da tabela '{nome_tabela}': {str(e)}")
             return []
 
+    def excluir_registro(self, nome_tabela: str, registro_id: int) -> bool:
+        """
+        Exclui um registro da tabela especificada pelo ID.
+
+        Args:
+            nome_tabela (str): Nome da tabela do banco de dados.
+            registro_id (int): ID do registro a ser excluído.
+
+        Returns:
+            bool: True se a exclusão foi realizada com sucesso, False caso contrário.
+        """
+        try:
+            with self.transaction():
+                query = f"DELETE FROM {nome_tabela} WHERE id = ?"
+                self.cursor.execute(query, (registro_id,))
+            logger.info(f"Registro com ID {registro_id} excluído com sucesso da tabela '{nome_tabela}'.")
+            return True
+        except Exception as e:
+            logger.error(f"Erro ao excluir registro com ID {registro_id} da tabela '{nome_tabela}': {str(e)}")
+            return False
+
     def fechar_conexao(self) -> None:
         """Fecha a conexão com o banco de dados."""
         try:
@@ -272,3 +294,6 @@ class BancoSQLite:
             logger.error(f"Erro ao fechar conexão com o banco: {str(e)}")
 
 
+dados = BancoSQLite()
+x =dados.estrutura_tabela("cadastro_funcionario")
+print(x)

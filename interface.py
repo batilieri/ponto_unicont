@@ -1,13 +1,13 @@
 import sys
+
+from PyQt6.QtCore import Qt, QDate, QSize
+from PyQt6.QtGui import QColor, QAction
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QLineEdit, QFormLayout,
                              QDateEdit, QComboBox, QTableWidget, QTableWidgetItem, QFileDialog,
-                             QGroupBox, QScrollArea, QSplitter, QFrame, QStackedWidget,
+                             QGroupBox, QStackedWidget,
                              QCheckBox, QSpinBox, QMessageBox, QRadioButton, QToolBar)
-from PyQt6.QtCore import Qt, QDate, QSize, QTimer
-from PyQt6.QtGui import QIcon, QPixmap, QColor, QFont, QPalette, QAction
-
-from banco.bancoSQlite import BancoSQLite
+from banco.bancoSQlite import BancoSQLite, logger
 
 
 class MainWindow(QMainWindow, BancoSQLite):
@@ -15,7 +15,17 @@ class MainWindow(QMainWindow, BancoSQLite):
         super().__init__()
 
         # Configurações da janela principal
-        self.setWindowTitle("HRPulse - Sistema de Gestão de RH")
+        self.sample_companies = None
+        self.city_emp = None
+        self.address_emp = None
+        self.cnpj = None
+        self.estado_emp = None
+        self.phone_emp = None
+        self.email = None
+        self.name_emp = None
+        self.employees_table = None
+        self.companies_table = None
+        self.setWindowTitle("HRUniconte - Sistema de Gestão de RH")
         self.setMinimumSize(1200, 800)
         self.setStyleSheet("""
             QMainWindow {
@@ -48,7 +58,7 @@ class MainWindow(QMainWindow, BancoSQLite):
             }
             QLineEdit, QDateEdit, QComboBox, QSpinBox {
                 border: 1px solid #ced4da;
-                border-radius: 4px;
+                border-radius: 1px;
                 padding: 8px;
                 background-color: white;
             }
@@ -166,7 +176,7 @@ class MainWindow(QMainWindow, BancoSQLite):
         layout = QVBoxLayout(home_widget)
 
         # Título e boas-vindas
-        title = QLabel("Bem-vindo ao HRPulse")
+        title = QLabel("Bem-vindo ao HRUnicont")
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: #343a40; margin-bottom: 20px;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -222,12 +232,205 @@ class MainWindow(QMainWindow, BancoSQLite):
         layout.addStretch()
 
         # Rodapé
-        footer = QLabel("© 2025 HRPulse - Todos os direitos reservados")
+        footer = QLabel("© 2025 Batiliere - Todos os direitos reservados")
         footer.setStyleSheet("color: #6c757d; margin-top: 20px;")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(footer)
 
         self.stack.addWidget(home_widget)
+
+    def load_companies_data(self):
+        """
+        Recupera os registros do banco de dados e preenche a tabela.
+        """
+        companies = self.consultar_registros("cadastro_empresa")
+        self.companies_table.setRowCount(len(companies))
+
+        for row, company in enumerate(companies):
+            # Supondo que a consulta retorne:
+            # (id, nome, cnpj, endereco, cidade, estado, telefone, email, data_cadastro, alteracao)
+            id, nome, cnpj, endereco, cidade, estado, telefone, email, data_cadastro, alteracao = company
+
+            self.companies_table.setItem(row, 0, QTableWidgetItem(str(id)))
+            self.companies_table.setItem(row, 1, QTableWidgetItem(nome))
+            self.companies_table.setItem(row, 2, QTableWidgetItem(cnpj))
+            self.companies_table.setItem(row, 3, QTableWidgetItem(endereco))
+            self.companies_table.setItem(row, 4, QTableWidgetItem(cidade))
+            self.companies_table.setItem(row, 5, QTableWidgetItem(estado))
+            self.companies_table.setItem(row, 6, QTableWidgetItem(telefone))
+            self.companies_table.setItem(row, 7, QTableWidgetItem(email))
+
+            # Cria a célula de ações
+            actions_cell = QWidget()
+            actions_layout = QHBoxLayout(actions_cell)
+            actions_layout.setContentsMargins(5, 0, 5, 0)
+
+            edit_btn = QPushButton("Editar")
+            edit_btn.setFixedWidth(60)
+            edit_btn.setStyleSheet("padding: 4px;")
+            # Conecta o botão de editar passando o id do registro
+            edit_btn.clicked.connect(lambda _, ind=id: self.edit_company(ind))
+
+            delete_btn = QPushButton("Excluir")
+            delete_btn.setFixedWidth(60)
+            delete_btn.setStyleSheet("padding: 4px; background-color: #f72585; color: white;")
+            # Conecta o botão de excluir passando o id do registro
+            delete_btn.clicked.connect(lambda _, ind=id: self.delete_company(ind))
+
+            actions_layout.addWidget(edit_btn)
+            actions_layout.addWidget(delete_btn)
+            actions_layout.addStretch()
+            actions_cell.setLayout(actions_layout)
+
+            self.companies_table.setCellWidget(row, 8, actions_cell)
+
+    # Estes métodos devem ser definidos fora de load_companies_data, como métodos da classe.
+    def edit_company(self, company_id):
+        try:
+            """
+            Método para editar uma empresa.
+            Aqui você pode:
+              - Recuperar os dados atuais do registro do banco de dados.
+              - Preencher um formulário de edição com os dados recuperados.
+              - Exibir o formulário para o usuário modificar os dados.
+              - Após salvar, atualizar o registro no banco e recarregar a tabela.
+            """
+            print(f"Editar empresa com ID: {company_id}")
+
+            dados = self.consultar_registros("cadastro_empresa", filtros={"id": int(company_id)})
+            print(dados)
+            self.show_edit_company_form(dados)
+        except Exception as e:
+            print(f"Erro ao Editar empresa: {e}")
+            QMessageBox.critical(self, "Erro", f"Ocorreu um erro ao Editar o Registro: {e}")
+
+    def show_edit_company_form(self, dados):
+        """
+        Exibe o formulário de edição preenchido com os dados do registro selecionado.
+
+        Args:
+            dados (List[tuple]): Lista com os dados retornados da consulta.
+                Exemplo:
+                [(id, nome, cnpj, endereco, cidade, estado, telefone, email, data_cadastro, alteracao)]
+        """
+        if not dados:
+            logger.error("Nenhum dado encontrado para edição.")
+            return
+
+        # Desempacota o primeiro registro da lista
+        registro = dados[0]
+        company_id, nome, cnpj, endereco, cidade, estado, telefone, email, data_cadastro, alteracao = registro
+
+        # Cria um diálogo para edição
+        dialog = QWidget(self, Qt.WindowType.Dialog)
+        dialog.setWindowTitle("Editar Empresa")
+        dialog.setMinimumWidth(400)
+        dialog.setStyleSheet("background-color: white; border-radius: 8px;")
+
+        layout = QVBoxLayout(dialog)
+
+        title = QLabel("Editar Empresa")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #343a40; margin-bottom: 20px;")
+        layout.addWidget(title)
+
+        form = QFormLayout()
+
+        # Cria e preenche os campos do formulário de edição
+        name_emp = QLineEdit()
+        name_emp.setPlaceholderText("Nome da empresa")
+        name_emp.setText(nome)
+        form.addRow("Nome:", name_emp)
+
+        cnpj_emp = QLineEdit()
+        cnpj_emp.setPlaceholderText("00.000.000/0000-00")
+        cnpj_emp.setText(cnpj)
+        form.addRow("CNPJ:", cnpj_emp)
+
+        address_emp = QLineEdit()
+        address_emp.setPlaceholderText("Endereço completo")
+        address_emp.setText(endereco)
+        form.addRow("Endereço:", address_emp)
+
+        city_emp = QLineEdit()
+        city_emp.setPlaceholderText("Cidade")
+        city_emp.setText(cidade)
+        form.addRow("Cidade:", city_emp)
+
+        estado_emp = QComboBox()
+        estados = ["Selecione", "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO",
+                   "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ",
+                   "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]
+        estado_emp.addItems(estados)
+        index = estado_emp.findText(estado)
+        if index >= 0:
+            estado_emp.setCurrentIndex(index)
+        else:
+            estado_emp.setCurrentIndex(0)
+        form.addRow("Estado:", estado_emp)
+
+        phone_emp = QLineEdit()
+        phone_emp.setPlaceholderText("(00) 0000-0000")
+        phone_emp.setText(telefone)
+        form.addRow("Telefone:", phone_emp)
+
+        email_emp = QLineEdit()
+        email_emp.setPlaceholderText("email@empresa.com")
+        email_emp.setText(email)
+        form.addRow("Email:", email_emp)
+
+        layout.addLayout(form)
+
+        buttons = QHBoxLayout()
+
+        def update_and_close():
+            # Aqui você deve implementar a lógica de atualização
+            # Exemplo: chamando um método que atualiza o registro no banco de dados
+            novos_dados = {
+                "nome": name_emp.text(),
+                "cnpj": cnpj_emp.text(),
+                "endereco": address_emp.text(),
+                "cidade": city_emp.text(),
+                "estado": estado_emp.currentText(),
+                "telefone": phone_emp.text(),
+                "email": email_emp.text()
+            }
+            self.atualizar_registro("cadastro_empresa", company_id, novos_dados)
+            self.load_companies_data()
+            dialog.close()
+
+        save = QPushButton("Salvar")
+        save.setStyleSheet("background-color: #28a745; color: white; padding: 6px; border-radius: 4px;")
+        save.clicked.connect(update_and_close)
+
+        cancel = QPushButton("Cancelar")
+        cancel.setStyleSheet("background-color: #dc3545; color: white; padding: 6px; border-radius: 4px;")
+        cancel.clicked.connect(dialog.close)
+
+        buttons.addWidget(save)
+        buttons.addWidget(cancel)
+
+        layout.addLayout(buttons)
+        dialog.setLayout(layout)
+        dialog.show()
+
+    def delete_company(self, company_id):
+        from PyQt6.QtWidgets import QMessageBox  # Se estiver usando PyQt6
+
+        try:
+            confirm = QMessageBox.question(
+                self,
+                "Confirmar Exclusão",
+                f"Tem certeza que deseja excluir a empresa {company_id}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+
+            if confirm == QMessageBox.StandardButton.Yes:
+                print(f"Excluindo empresa com ID: {company_id}")
+                self.excluir_registro("cadastro_empresa", company_id)
+                self.load_companies_data()
+        except Exception as e:
+            print(f"Erro ao excluir empresa: {e}")
+            QMessageBox.critical(self, "Erro", f"Ocorreu um erro ao excluir: {e}")
 
     def init_companies_screen(self):
         companies_widget = QWidget()
@@ -240,66 +443,109 @@ class MainWindow(QMainWindow, BancoSQLite):
 
         # Botões de ação
         actions_layout = QHBoxLayout()
-
         add_btn = QPushButton("Nova Empresa")
         add_btn.clicked.connect(self.show_add_company_form)
-
         export_btn = QPushButton("Exportar")
         export_btn.setStyleSheet("background-color: #6c757d;")
         export_btn.clicked.connect(self.export_companies)
-
         actions_layout.addWidget(add_btn)
         actions_layout.addWidget(export_btn)
         actions_layout.addStretch()
-
         layout.addLayout(actions_layout)
 
         # Tabela de empresas
         self.companies_table = QTableWidget()
-        self.companies_table.setColumnCount(5)
-        self.companies_table.setHorizontalHeaderLabels(["ID", "Nome", "CNPJ", "Endereço", "Ações"])
+        self.companies_table.setColumnCount(9)
+        # Definindo larguras específicas para cada coluna:
+        self.companies_table.setColumnWidth(0, 80)  # Coluna "ID"
+        self.companies_table.setColumnWidth(1, 250)  # Coluna "Nome"
+        self.companies_table.setColumnWidth(2, 110)  # Coluna "CNPJ"
+        self.companies_table.setColumnWidth(3, 130)  # Coluna "Endereço"
+        self.companies_table.setColumnWidth(4, 100)  # Coluna "Cidade"
+        self.companies_table.setColumnWidth(5, 60)  # Coluna "Estado"
+        self.companies_table.setColumnWidth(6, 120)  # Coluna "Telefone"
+        self.companies_table.setColumnWidth(7, 150)  # Coluna "E-mail"
+        self.companies_table.setColumnWidth(8, 100)  # Coluna "Ações"
+        self.companies_table.setHorizontalHeaderLabels([
+            "Código", "Nome", "CNPJ", "Endereço", "Cidade",
+            "Estado", "Telefone", "E-mail", "Ações"
+        ])
         self.companies_table.horizontalHeader().setStretchLastSection(True)
         self.companies_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.companies_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 
-        # Dados de exemplo
-        sample_companies = [
-            (1, "TechSolutions LTDA", "12.345.678/0001-90", "Rua Principal, 123 - São Paulo, SP"),
-            (2, "Global Comércio S.A.", "98.765.432/0001-10", "Av. Brasil, 500 - Rio de Janeiro, RJ"),
-            (3, "Indústria Nacional LTDA", "45.678.901/0001-23", "Rua Industrial, 789 - Belo Horizonte, MG")
-        ]
-
-        self.companies_table.setRowCount(len(sample_companies))
-
-        for row, (id, name, cnpj, address) in enumerate(sample_companies):
-            self.companies_table.setItem(row, 0, QTableWidgetItem(str(id)))
-            self.companies_table.setItem(row, 1, QTableWidgetItem(name))
-            self.companies_table.setItem(row, 2, QTableWidgetItem(cnpj))
-            self.companies_table.setItem(row, 3, QTableWidgetItem(address))
-
-            actions_cell = QWidget()
-            actions_layout = QHBoxLayout(actions_cell)
-            actions_layout.setContentsMargins(5, 0, 5, 0)
-
-            edit_btn = QPushButton("Editar")
-            edit_btn.setFixedWidth(70)
-            edit_btn.setStyleSheet("padding: 4px;")
-
-            delete_btn = QPushButton("Excluir")
-            delete_btn.setFixedWidth(70)
-            delete_btn.setStyleSheet("padding: 4px; background-color: #f72585;")
-
-            actions_layout.addWidget(edit_btn)
-            actions_layout.addWidget(delete_btn)
-
-            self.companies_table.setCellWidget(row, 4, actions_cell)
-
         layout.addWidget(self.companies_table)
-
         self.stack.addWidget(companies_widget)
 
-    def init_employees_screen(self):
+        # Carrega os dados do banco
+        self.load_companies_data()
 
+    # ---------------------------------------------------------------------------------------------
+    # Cadastro de Colaborador
+
+    def load_employees_data(self):
+        try:
+            # Consulta os registros reais do banco de dados
+            funcionarios = self.consultar_registros("cadastro_funcionario")
+            if funcionarios:
+                print(funcionarios)
+                self.employees_table.setRowCount(len(funcionarios))
+                for row, emp in enumerate(funcionarios):
+                    # Considere que a tupla 'emp' possua a seguinte ordem:
+                    # (n_folha, nome, CPF, data_admissao, estado_civil, telefone,
+                    #  empresa, departamento, cargo, salario, jornada_trabalho,
+                    #  status, pis_pasep, ctps, banco, contabancaria)
+                    # ["Código", "Empresa", "N° Folha", "Nome", "CPF", "Status", "Ações"]
+                    codigo_func = emp[0]
+                    empresa_func = emp[7]
+                    n_folha = emp[1]
+                    nome_func = emp[2]
+                    cpf = emp[3]
+                    status = emp[12]
+
+                    self.employees_table.setItem(row, 0, QTableWidgetItem(str(codigo_func)))
+                    self.employees_table.setItem(row, 1, QTableWidgetItem(str(empresa_func)))
+                    self.employees_table.setItem(row, 2, QTableWidgetItem(str(n_folha)))
+                    self.employees_table.setItem(row, 3, QTableWidgetItem(nome_func))
+                    self.employees_table.setItem(row, 4, QTableWidgetItem(cpf))
+                    self.employees_table.setItem(row, 5, QTableWidgetItem(status))
+
+                    status_item = QTableWidgetItem(status)
+                    if status == "Ativo":
+                        status_item.setForeground(QColor("#28a745"))
+                    elif status == "Férias":
+                        status_item.setForeground(QColor("#fd7e14"))
+                    elif status == "Afastado":
+                        status_item.setForeground(QColor("#dc3545"))
+                    self.employees_table.setItem(row, 6, status_item)
+                    # Célula de ações: botões Editar e Excluir
+                    actions_cell = QWidget()
+                    actions_layout = QHBoxLayout(actions_cell)
+                    actions_layout.setContentsMargins(5, 0, 5, 0)
+
+                    edit_btn = QPushButton("Editar")
+                    edit_btn.setFixedWidth(70)
+                    edit_btn.setStyleSheet("padding: 4px;")
+                    # Ao clicar, abre o formulário de edição passando o ID do funcionário (n_folha)
+                    edit_btn.clicked.connect(lambda _, nf=n_folha: self.show_edit_employee_form(nf))
+
+                    delete_btn = QPushButton("Excluir")
+                    delete_btn.setFixedWidth(70)
+                    delete_btn.setStyleSheet("padding: 4px; background-color: #f72585;")
+                    delete_btn.clicked.connect(lambda _, nf=n_folha: self.delete_employee(nf))
+
+                    actions_layout.addWidget(edit_btn)
+                    actions_layout.addWidget(delete_btn)
+                    actions_layout.addStretch()
+                    actions_cell.setLayout(actions_layout)
+
+                    self.employees_table.setCellWidget(row, 6, actions_cell)
+
+            logger.info("Tabela de funcionários atualizada com sucesso!")
+        except Exception as e:
+            logger.error(f"Erro ao carregar dados de funcionários: {e}")
+
+    def init_employees_screen(self):
         employees_widget = QWidget()
         layout = QVBoxLayout(employees_widget)
 
@@ -335,7 +581,14 @@ class MainWindow(QMainWindow, BancoSQLite):
 
         filter_layout.addWidget(QLabel("Empresa:"))
         company_filter = QComboBox()
-        company_filter.addItems(["Todas", "TechSolutions LTDA", "Global Comércio S.A.", "Indústria Nacional LTDA"])
+        empresas = self.consultar_registros("cadastro_empresa")
+        if empresas:
+            for i in empresas:
+                codigo = i[0]
+                nome = i[1]
+                company_filter.addItem(f"{codigo} - {nome}")
+        else:
+            company_filter.addItem("Nenhuma empresa cadastrada")
         filter_layout.addWidget(company_filter)
 
         filter_layout.addWidget(QLabel("Departamento:"))
@@ -357,58 +610,73 @@ class MainWindow(QMainWindow, BancoSQLite):
         self.employees_table = QTableWidget()
         self.employees_table.setColumnCount(7)
         self.employees_table.setHorizontalHeaderLabels(
-            ["ID", "Nome", "Empresa", "Departamento", "Cargo", "Status", "Ações"])
+            ["Código", "Empresa", "N° Folha", "Nome", "CPF", "Status", "Ações"]
+        )
         self.employees_table.horizontalHeader().setStretchLastSection(True)
         self.employees_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.employees_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 
-        # Dados de exemplo
-        sample_employees = [
-            (1, "João Silva", "TechSolutions LTDA", "TI", "Desenvolvedor", "Ativo"),
-            (2, "Maria Oliveira", "TechSolutions LTDA", "RH", "Analista de RH", "Ativo"),
-            (3, "Pedro Santos", "Global Comércio S.A.", "Financeiro", "Contador", "Férias"),
-            (4, "Ana Costa", "Global Comércio S.A.", "Marketing", "Gerente de Marketing", "Ativo"),
-            (5, "Lucas Pereira", "Indústria Nacional LTDA", "Operações", "Supervisor", "Afastado")
-        ]
+        # Carrega os dados reais do banco
+        funcionarios = self.consultar_registros("cadastro_funcionario")
+        if funcionarios:
+            print(funcionarios)
+            self.employees_table.setRowCount(len(funcionarios))
+            for row, emp in enumerate(funcionarios):
+                # Considere que a tupla 'emp' possua a seguinte ordem:
+                # (n_folha, nome, CPF, data_admissao, estado_civil, telefone,
+                #  empresa, departamento, cargo, salario, jornada_trabalho,
+                #  status, pis_pasep, ctps, banco, contabancaria)
+                # ["Código", "Empresa", "N° Folha", "Nome", "CPF", "Status", "Ações"]
+                codigo_func = emp[0]
+                empresa_func = emp[7]
+                n_folha = emp[1]
+                nome_func = emp[2]
+                cpf = emp[3]
+                status = emp[12]
 
-        self.employees_table.setRowCount(len(sample_employees))
+                self.employees_table.setItem(row, 0, QTableWidgetItem(str(codigo_func)))
+                self.employees_table.setItem(row, 1, QTableWidgetItem(str(empresa_func)))
+                self.employees_table.setItem(row, 2, QTableWidgetItem(str(n_folha)))
+                self.employees_table.setItem(row, 3, QTableWidgetItem(nome_func))
+                self.employees_table.setItem(row, 4, QTableWidgetItem(cpf))
+                self.employees_table.setItem(row, 5, QTableWidgetItem(status))
 
-        for row, (id, name, company, dept, position, status) in enumerate(sample_employees):
-            self.employees_table.setItem(row, 0, QTableWidgetItem(str(id)))
-            self.employees_table.setItem(row, 1, QTableWidgetItem(name))
-            self.employees_table.setItem(row, 2, QTableWidgetItem(company))
-            self.employees_table.setItem(row, 3, QTableWidgetItem(dept))
-            self.employees_table.setItem(row, 4, QTableWidgetItem(position))
+                status_item = QTableWidgetItem(status)
+                if status == "Ativo":
+                    status_item.setForeground(QColor("#28a745"))
+                elif status == "Férias":
+                    status_item.setForeground(QColor("#fd7e14"))
+                elif status == "Afastado":
+                    status_item.setForeground(QColor("#dc3545"))
+                self.employees_table.setItem(row, 6, status_item)
 
-            status_item = QTableWidgetItem(status)
-            if status == "Ativo":
-                status_item.setForeground(QColor("#28a745"))
-            elif status == "Férias":
-                status_item.setForeground(QColor("#fd7e14"))
-            elif status == "Afastado":
-                status_item.setForeground(QColor("#dc3545"))
+                # Célula de ações: botões Editar e Excluir
+                actions_cell = QWidget()
+                actions_layout = QHBoxLayout(actions_cell)
+                actions_layout.setContentsMargins(5, 0, 5, 0)
 
-            self.employees_table.setItem(row, 5, status_item)
+                edit_btn = QPushButton("Editar")
+                edit_btn.setFixedWidth(70)
+                edit_btn.setStyleSheet("padding: 4px;")
+                # Ao clicar, abre o formulário de edição passando o ID do funcionário (n_folha)
+                edit_btn.clicked.connect(lambda _, nf=n_folha: self.show_edit_employee_form(nf))
 
-            actions_cell = QWidget()
-            actions_layout = QHBoxLayout(actions_cell)
-            actions_layout.setContentsMargins(5, 0, 5, 0)
+                delete_btn = QPushButton("Excluir")
+                delete_btn.setFixedWidth(70)
+                delete_btn.setStyleSheet("padding: 4px; background-color: #f72585;")
+                delete_btn.clicked.connect(lambda _, nf=n_folha: self.delete_employee(nf))
 
-            edit_btn = QPushButton("Editar")
-            edit_btn.setFixedWidth(70)
-            edit_btn.setStyleSheet("padding: 4px;")
+                actions_layout.addWidget(edit_btn)
+                actions_layout.addWidget(delete_btn)
+                actions_layout.addStretch()
+                actions_cell.setLayout(actions_layout)
 
-            delete_btn = QPushButton("Excluir")
-            delete_btn.setFixedWidth(70)
-            delete_btn.setStyleSheet("padding: 4px; background-color: #f72585;")
-
-            actions_layout.addWidget(edit_btn)
-            actions_layout.addWidget(delete_btn)
-
-            self.employees_table.setCellWidget(row, 6, actions_cell)
+                self.employees_table.setCellWidget(row, 6, actions_cell)
+        else:
+            # Se não houver funcionários cadastrados
+            self.employees_table.setRowCount(0)
 
         layout.addWidget(self.employees_table)
-
         self.stack.addWidget(employees_widget)
 
     def init_timesheet_screen(self):
@@ -953,18 +1221,6 @@ class MainWindow(QMainWindow, BancoSQLite):
 
         # Métodos para formulários e ações
 
-    from PyQt6.QtWidgets import (
-        QWidget, QVBoxLayout, QLabel, QFormLayout, QLineEdit,
-        QComboBox, QHBoxLayout, QPushButton
-    )
-    from PyQt6.QtCore import Qt
-
-    from PyQt6.QtWidgets import (
-        QWidget, QVBoxLayout, QLabel, QFormLayout, QLineEdit,
-        QComboBox, QHBoxLayout, QPushButton
-    )
-    from PyQt6.QtCore import Qt
-
     def show_add_company_form(self):
         dialog = QWidget(self, Qt.WindowType.Dialog)
         dialog.setWindowTitle("Adicionar Nova Empresa")
@@ -1043,7 +1299,7 @@ class MainWindow(QMainWindow, BancoSQLite):
 
     def save_data(self):
         try:
-            coluna = ("nome", "cnpj", "endereco", "cidade", "estado", "telefone", "email")  # Colunas na ordem correta
+            colunas = ("nome", "cnpj", "endereco", "cidade", "estado", "telefone", "email")
 
             nome = self.name_emp.text()
             cnpj = self.cnpj.text()
@@ -1053,22 +1309,23 @@ class MainWindow(QMainWindow, BancoSQLite):
             telefone = self.phone_emp.text()
             email = self.email.text()
 
-            # Criar a tabela com os campos na ordem correta
-            campos = {coluna[i]: "TEXT" for i in range(len(coluna))}
+            # Cria a tabela, se necessário
+            campos = {colunas[i]: "TEXT" for i in range(len(colunas))}
             self.criar_tabela("cadastro_empresa", campos)
 
-            # Criar dicionário de dados
-            dados = {coluna[i]: valor or "NULL" for i, valor in
+            # Cria o dicionário de dados
+            dados = {colunas[i]: valor or "NULL" for i, valor in
                      enumerate([nome, cnpj, endereco, cidade, estado, telefone, email])}
 
-            # Verificação extra para evitar erro ao inserir no banco
+            # Validação extra para evitar erro
             if not cnpj.strip():
                 raise ValueError("O CNPJ não pode estar vazio.")
 
-            print(dados)  # Depuração
-
-            # Inserir ou atualizar os dados no banco de dados
+            # Insere ou atualiza os dados no banco de dados
             self.inserir_ou_atualizar_registro("cadastro_empresa", dados, cnpj)
+
+            # Atualiza os dados da tabela sem recriar toda a tela
+            self.load_companies_data()
 
         except Exception as e:
             print(f"Ocorreu um erro ao cadastrar: {e}")
@@ -1092,100 +1349,94 @@ class MainWindow(QMainWindow, BancoSQLite):
         personal_tab = QWidget()
         personal_layout = QFormLayout(personal_tab)
 
-        name = QLineEdit()
-        name.setPlaceholderText("Nome completo")
-        personal_layout.addRow("Nome:", name)
+        self.empresa_func = QComboBox()
 
-        cpf = QLineEdit()
-        cpf.setPlaceholderText("000.000.000-00")
-        personal_layout.addRow("CPF:", cpf)
+        empresas = self.consultar_registros("cadastro_empresa")
+        for i in empresas:
+            if empresas:
+                codigo = i[0]
+                nome = i[1]
+                self.empresa_func.addItems([str(codigo) + " - " + nome])
+            else:
+                self.empresa_func.addItems(["Nenhuma empresa cadastrada"])
 
-        birth_date = QDateEdit()
-        birth_date.setCalendarPopup(True)
-        birth_date.setDate(QDate(1990, 1, 1))
-        personal_layout.addRow("Data de Nascimento:", birth_date)
+        personal_layout.addRow("Empresa:", self.empresa_func)
 
-        gender = QComboBox()
-        gender.addItems(["Selecione", "Masculino", "Feminino", "Outro", "Prefiro não informar"])
-        personal_layout.addRow("Gênero:", gender)
+        self.num_folha = QLineEdit()
+        self.num_folha.setPlaceholderText("N° Folha - Campo Obrigatório")
+        personal_layout.addRow("N° Folha:", self.num_folha)
 
-        marital_status = QComboBox()
-        marital_status.addItems(["Selecione", "Solteiro(a)", "Casado(a)", "Divorciado(a)", "Viúvo(a)", "União Estável"])
-        personal_layout.addRow("Estado Civil:", marital_status)
+        self.name_func = QLineEdit()
+        self.name_func.setPlaceholderText("Nome completo - Campo Obrigatório")
+        personal_layout.addRow("Nome:", self.name_func)
 
-        phone = QLineEdit()
-        phone.setPlaceholderText("(00) 00000-0000")
-        personal_layout.addRow("Telefone:", phone)
+        self.cpf = QLineEdit()
+        self.cpf.setPlaceholderText("000.000.000-00 - Campo Obrigatório")
+        personal_layout.addRow("CPF:", self.cpf)
 
-        email = QLineEdit()
-        email.setPlaceholderText("email@exemplo.com")
-        personal_layout.addRow("Email:", email)
+        self.data_adimissap = QDateEdit()
+        self.data_adimissap.setCalendarPopup(True)
+        self.data_adimissap.setDate(QDate.currentDate())
+        personal_layout.addRow("Data de Admissão:", self.data_adimissap)
 
-        address = QLineEdit()
-        address.setPlaceholderText("Endereço completo")
-        personal_layout.addRow("Endereço:", address)
+        self.estado_civil = QComboBox()
+        self.estado_civil.addItems(
+            ["Selecione", "Solteiro(a)", "Casado(a)", "Divorciado(a)", "Viúvo(a)", "União Estável"])
+        personal_layout.addRow("Estado Civil:", self.estado_civil)
+
+        self.telefone = QLineEdit()
+        self.telefone.setPlaceholderText("(00) 00000-0000")
+        personal_layout.addRow("Telefone:", self.telefone)
 
         # Tab de Dados Profissionais
         professional_tab = QWidget()
         professional_layout = QFormLayout(professional_tab)
 
-        company = QComboBox()
+        self.email_func = QLineEdit()
+        self.email_func.setPlaceholderText("email@exemplo.com")
+        professional_layout.addRow("Email:", self.email_func)
 
+        self.department = QComboBox()
+        self.department.addItems(["Selecione um departamento", "TI", "RH", "Financeiro", "Marketing", "Operações"])
+        professional_layout.addRow("Departamento:", self.department)
 
-        company.addItems(
-            ["Selecione uma empresa", "TechSolutions LTDA", "Global Comércio S.A.", "Indústria Nacional LTDA"])
-        professional_layout.addRow("Empresa:", company)
+        self.cargo = QLineEdit()
+        self.cargo.setPlaceholderText("Cargo do funcionário")
+        professional_layout.addRow("Cargo:", self.cargo)
 
-        department = QComboBox()
-        department.addItems(["Selecione um departamento", "TI", "RH", "Financeiro", "Marketing", "Operações"])
-        professional_layout.addRow("Departamento:", department)
+        self.salario = QLineEdit()
+        self.salario.setPlaceholderText("0,00")
+        professional_layout.addRow("Salário:", self.salario)
 
-        position = QLineEdit()
-        position.setPlaceholderText("Cargo do funcionário")
-        professional_layout.addRow("Cargo:", position)
+        self.jornada_trabalho = QComboBox()
+        self.jornada_trabalho.addItems(["44h/semana", "40h/semana", "30h/semana", "20h/semana", "Outra"])
+        professional_layout.addRow("Jornada de Trabalho:", self.jornada_trabalho)
 
-        hire_date = QDateEdit()
-        hire_date.setCalendarPopup(True)
-        hire_date.setDate(QDate.currentDate())
-        professional_layout.addRow("Data de Admissão:", hire_date)
-
-        salary = QLineEdit()
-        salary.setPlaceholderText("0,00")
-        professional_layout.addRow("Salário:", salary)
-
-        workload = QComboBox()
-        workload.addItems(["40h/semana", "44h/semana", "30h/semana", "20h/semana", "Outra"])
-        professional_layout.addRow("Jornada de Trabalho:", workload)
-
-        status = QComboBox()
-        status.addItems(["Ativo", "Inativo", "Férias", "Afastado"])
-        professional_layout.addRow("Status:", status)
+        self.status = QComboBox()
+        self.status.addItems(["Ativo", "Inativo", "Férias", "Afastado"])
+        professional_layout.addRow("Status:", self.status)
 
         # Tab de Documentos
         documents_tab = QWidget()
         documents_layout = QFormLayout(documents_tab)
 
-        rg = QLineEdit()
-        rg.setPlaceholderText("00.000.000-0")
-        documents_layout.addRow("RG:", rg)
+        self.pis = QLineEdit()
+        self.pis.setPlaceholderText("000.00000.00-0")
+        documents_layout.addRow("PIS/PASEP:", self.pis)
 
-        pis = QLineEdit()
-        pis.setPlaceholderText("000.00000.00-0")
-        documents_layout.addRow("PIS/PASEP:", pis)
+        self.ctps = QLineEdit()
+        self.ctps.setPlaceholderText("0000000 série 000-0")
+        documents_layout.addRow("CTPS:", self.ctps)
 
-        ctps = QLineEdit()
-        ctps.setPlaceholderText("0000000 série 000-0")
-        documents_layout.addRow("CTPS:", ctps)
-
-        bank = QComboBox()
-        bank.addItems(
+        self.banco = QComboBox()
+        self.banco.addItems(
             ["Selecione", "Banco do Brasil", "Caixa Econômica", "Itaú", "Bradesco", "Santander", "Nubank", "Inter",
              "Outro"])
-        documents_layout.addRow("Banco:", bank)
+        documents_layout.addRow("Banco:", self.banco)
 
-        account = QLineEdit()
-        account.setPlaceholderText("Agência e conta")
-        documents_layout.addRow("Conta Bancária:", account)
+        self.conta = QLineEdit()
+        self.conta.setPlaceholderText("Agência e conta")
+        documents_layout.addRow("Conta Bancária:", self.conta)
 
         # Adicionar tabs ao TabWidget
         tabs.addTab(personal_tab, "Dados Pessoais")
@@ -1195,24 +1446,162 @@ class MainWindow(QMainWindow, BancoSQLite):
         layout.addWidget(tabs)
 
         buttons = QHBoxLayout()
+
+        def save_and_close():
+            self.salva_funcionario()
+            dialog.close()  # Fecha o diálogo após salvar
+
         save = QPushButton("Salvar")
-        save.clicked.connect(dialog.close)
+        save.setStyleSheet("background-color: #28a745; color: white; padding: 6px; border-radius: 4px;")
+        save.clicked.connect(save_and_close)
 
         cancel = QPushButton("Cancelar")
-        cancel.setStyleSheet("background-color: #6c757d;")
+        cancel.setStyleSheet("background-color: #dc3545; color: white; padding: 6px; border-radius: 4px;")
         cancel.clicked.connect(dialog.close)
 
         buttons.addWidget(save)
         buttons.addWidget(cancel)
 
-        layout.addLayout(buttons)
+        layout.addLayout(buttons)  # Adiciona os botões ao layout principal
 
         dialog.setLayout(layout)
+
+        # Conexões na aba "Dados Pessoais"
+        self.num_folha.returnPressed.connect(lambda: self.name_func.setFocus())
+        self.name_func.returnPressed.connect(lambda: self.cpf.setFocus())
+        self.cpf.returnPressed.connect(lambda: self.data_adimissap.setFocus())
+        # QDateEdit não possui returnPressed; use editingFinished:
+        self.data_adimissap.editingFinished.connect(lambda: self.estado_civil.setFocus())
+        # Para QComboBox, utilize o sinal activated (o parâmetro _ ignora o índice):
+        self.estado_civil.activated.connect(lambda _: self.telefone.setFocus())
+        self.telefone.returnPressed.connect(lambda: self.email_func.setFocus())  # pula para a aba "Dados Profissionais"
+
+        # Conexões na aba "Dados Profissionais"
+        # Supondo que queremos preencher o campo Departamento primeiro
+        self.email_func.returnPressed.connect(lambda: self.department.setFocus())
+        self.department.activated.connect(lambda _: self.cargo.setFocus())
+        self.cargo.returnPressed.connect(lambda: self.salario.setFocus())
+        self.salario.returnPressed.connect(lambda: self.jornada_trabalho.setFocus())
+        self.jornada_trabalho.activated.connect(lambda _: self.status.setFocus())
+        self.status.activated.connect(lambda _: self.pis.setFocus())  # pula para a aba "Documentos"
+
+        # Conexões na aba "Documentos"
+        self.pis.returnPressed.connect(lambda: self.ctps.setFocus())
+        self.ctps.returnPressed.connect(lambda: self.banco.setFocus())
+        self.banco.activated.connect(lambda _: self.conta.setFocus())
+        self.conta.returnPressed.connect(lambda: save.click())  # Pressionar Enter em Conta clica em "Salvar"
+
         dialog.show()
+
+    def salva_funcionario(self):
+        try:
+            # Define a ordem das colunas conforme a estrutura da tabela
+            colunas = (
+                "n_folha", "nome", "CPF", "data_admissao", "estado_civil", "telefone",
+                "empresa", "departamento", "cargo", "salario", "jornada_trabalho",
+                "status", "pis_pasep", "ctps", "banco", "contabancaria"
+            )
+
+            # Recupera os valores dos widgets do formulário
+            n_folha = self.num_folha.text()
+            nome = self.name_func.text()
+            cpf = self.cpf.text()
+            # Obtém a data no formato desejado (por exemplo, "yyyy-MM-dd")
+            data_admissao = self.data_adimissap.date().toString("yyyy-MM-dd")
+            estado_civil = self.estado_civil.currentText()
+            telefone = self.telefone.text()
+
+            # Para o campo empresa, o QComboBox exibe "código - nome".
+            # Separa apenas o código (assumindo que seja numérico)
+            empresa_str = self.empresa_func.currentText()
+
+            if " - " in empresa_str:
+                empresa_codigo = empresa_str.split(" - ")[0].strip()
+                print(empresa_codigo)
+            else:
+                empresa_codigo = ""
+
+            departamento = self.department.currentText()
+            cargo = self.cargo.text()
+            salario = self.salario.text()
+            jornada_trabalho = self.jornada_trabalho.currentText()
+            status = self.status.currentText()
+            pis_pasep = self.pis.text()
+            ctps = self.ctps.text()
+            banco = self.banco.currentText()
+            contabancaria = self.conta.text()
+
+            # Define a estrutura da tabela em um dicionário
+            estrutura_funcionario = {
+                "n_folha": "INTEGER UNIQUE NOT NULL",
+                "nome": "TEXT NOT NULL",
+                "CPF": "TEXT UNIQUE NOT NULL",
+                "data_admissao": "TEXT",
+                "estado_civil": "TEXT",
+                "telefone": "TEXT",
+                "empresa": "INTEGER",
+                "departamento": "TEXT",
+                "cargo": "TEXT",
+                "salario": "REAL",
+                "jornada_trabalho": "TEXT",
+                "status": "TEXT",
+                "pis_pasep": "TEXT",
+                "ctps": "TEXT",
+                "banco": "TEXT",
+                "contabancaria": "TEXT"
+            }
+
+            # Cria a tabela "cadastro_funcionario", se necessário
+            self.criar_tabela("cadastro_funcionario", estrutura_funcionario)
+
+            # Cria o dicionário com os dados a serem inseridos
+            dados = {
+                "n_folha": int(n_folha) if n_folha.isdigit() else None,
+                "nome": nome,
+                "CPF": cpf,
+                "data_admissao": data_admissao,
+                "estado_civil": estado_civil,
+                "telefone": telefone,
+                "empresa": int(empresa_codigo) if empresa_codigo.isdigit() else None,
+                "departamento": departamento,
+                "cargo": cargo,
+                "salario": float(salario) if salario.replace(".", "", 1).isdigit() else 0.0,
+                "jornada_trabalho": jornada_trabalho,
+                "status": status,
+                "pis_pasep": pis_pasep,
+                "ctps": ctps,
+                "banco": banco,
+                "contabancaria": contabancaria
+            }
+
+            # Valida os campos obrigatórios
+            if not n_folha.strip():
+                raise ValueError("O N° Folha é obrigatório e deve ser numérico.")
+            if not nome.strip():
+                raise ValueError("O nome é obrigatório.")
+            if not cpf.strip():
+                raise ValueError("O CPF é obrigatório.")
+            if not empresa_codigo.strip():
+                raise ValueError("O Código da empresa é obrigatório")
+
+            # Insere ou atualiza o registro no banco de dados.
+            # Neste exemplo, estamos usando o CPF como chave única.
+            self.inserir_ou_atualizar_registro("cadastro_funcionario", dados, cpf)
+
+            # Caso exista um método para atualizar a visualização dos funcionários
+            if hasattr(self, "load_employees_data"):
+                self.load_employees_data()
+
+            # self.load_employees_data()
+            logger.info("Funcionário cadastrado com sucesso!")
+        except Exception as e:
+            logger.error(f"Ocorreu um erro ao cadastrar o funcionário: {e}")
+            print(f"Ocorreu um erro ao cadastrar o funcionário: {e}")
 
     def browse_file(self, line_edit):
         file_name, _ = QFileDialog.getOpenFileName(self, "Selecionar Arquivo", "",
-                                                   "Todos os Arquivos (*);;Arquivos CSV (*.csv);;Arquivos de Texto (*.txt);;Arquivos Excel (*.xls *.xlsx)")
+                                                   "Todos os Arquivos (*);;Arquivos CSV (*.csv);;Arquivos de Texto ("
+                                                   "*.txt);;Arquivos Excel (*.xls *.xlsx)")
         if file_name:
             line_edit.setText(file_name)
 
@@ -1223,14 +1612,16 @@ class MainWindow(QMainWindow, BancoSQLite):
 
     def export_employees(self):
         file_name, _ = QFileDialog.getSaveFileName(self, "Exportar Funcionários", "",
-                                                   "Arquivos CSV (*.csv);;Arquivos de Texto (*.txt);;Arquivos Excel (*.xlsx)")
+                                                   "Arquivos CSV (*.csv);;Arquivos de Texto (*.txt);;Arquivos Excel ("
+                                                   "*.xlsx)")
         if file_name:
             QMessageBox.information(self, "Exportação de Funcionários",
                                     f"Funcionários exportados com sucesso para {file_name}")
 
     def export_companies(self):
         file_name, _ = QFileDialog.getSaveFileName(self, "Exportar Empresas", "",
-                                                   "Arquivos CSV (*.csv);;Arquivos de Texto (*.txt);;Arquivos Excel (*.xlsx)")
+                                                   "Arquivos CSV (*.csv);;Arquivos de Texto (*.txt);;Arquivos Excel ("
+                                                   "*.xlsx)")
         if file_name:
             QMessageBox.information(self, "Exportação de Empresas", f"Empresas exportadas com sucesso para {file_name}")
 
@@ -1239,7 +1630,8 @@ class MainWindow(QMainWindow, BancoSQLite):
 
     def export_timesheet(self):
         file_name, _ = QFileDialog.getSaveFileName(self, "Exportar Dados de Ponto", "",
-                                                   "Arquivos CSV (*.csv);;Arquivos de Texto (*.txt);;Arquivos Excel (*.xlsx)")
+                                                   "Arquivos CSV (*.csv);;Arquivos de Texto (*.txt);;Arquivos Excel ("
+                                                   "*.xlsx)")
         if file_name:
             QMessageBox.information(self, "Exportação de Ponto",
                                     f"Dados de ponto exportados com sucesso para {file_name}")
