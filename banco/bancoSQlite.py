@@ -295,5 +295,6 @@ class BancoSQLite:
 
 
 dados = BancoSQLite()
-x =dados.estrutura_tabela("cadastro_funcionario")
-print(x)
+print(dados.consultar_registros("cadastro_funcionario", ))
+
+print(dados.estrutura_tabela("cadastro_funcionario"))
