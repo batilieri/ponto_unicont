@@ -294,7 +294,7 @@ class BancoSQLite:
             logger.error(f"Erro ao fechar conexão com o banco: {str(e)}")
 
 
-dados = BancoSQLite()
-print(dados.consultar_registros("cadastro_funcionario", ))
-
-print(dados.estrutura_tabela("cadastro_funcionario"))
+# dados = BancoSQLite()
+# print(dados.consultar_registros("cadastro_funcionario", ))
+#
+# print(dados.estrutura_tabela("cadastro_funcionario"))

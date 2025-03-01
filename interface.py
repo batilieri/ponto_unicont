@@ -483,7 +483,6 @@ class MainWindow(QMainWindow, BancoSQLite):
     # ---------------------------------------------------------------------------------------------
     # Cadastro de Colaborador
 
-
     def init_employees_screen(self):
         employees_widget = QWidget()
         layout = QVBoxLayout(employees_widget)
@@ -624,8 +623,7 @@ class MainWindow(QMainWindow, BancoSQLite):
             self.employees_table.setRowCount(0)
 
         layout.addWidget(self.employees_table)
-        self.stack.addWidget(employees_widget)
-
+        self.stack.addWidget(employees_widget)  # Gestão de F
 
     def load_employees_data(self):
         try:
@@ -651,16 +649,12 @@ class MainWindow(QMainWindow, BancoSQLite):
                     empresa_func = emp[7] if num_campos > 7 else ""
                     status = emp[12] if num_campos > 12 else "Ativo"
 
-                    print(f"Dados extraídos: codigo={codigo_func}, n_folha={n_folha}, nome={nome_func}")
-
                     self.employees_table.setItem(row, 0, QTableWidgetItem(str(codigo_func)))
                     self.employees_table.setItem(row, 1, QTableWidgetItem(str(empresa_func)))
                     self.employees_table.setItem(row, 2, QTableWidgetItem(str(n_folha)))
                     self.employees_table.setItem(row, 3, QTableWidgetItem(nome_func))
                     self.employees_table.setItem(row, 4, QTableWidgetItem(cpf))
 
-                    # Status com cores personalizadas
-                    # Status com cores personalizadas
                     status_item = QTableWidgetItem(status)
                     if status == "Ativo":
                         status_item.setForeground(QColor("#28a745"))  # verde para ativo
@@ -673,7 +667,6 @@ class MainWindow(QMainWindow, BancoSQLite):
                     else:
                         status_item.setForeground(QColor("black"))
                     self.employees_table.setItem(row, 5, status_item)
-
 
                     # Célula de ações: botões Editar e Excluir
                     actions_cell = QWidget()
@@ -688,13 +681,13 @@ class MainWindow(QMainWindow, BancoSQLite):
                     edit_btn.setFixedWidth(70)
                     edit_btn.setStyleSheet("padding: 4px;")
                     # Use uma função parcial para fixar o valor de n_folha
-                    edit_btn.clicked.connect(lambda _, nf=cpf: self.show_edit_employee_form(nf))
+                    edit_btn.clicked.connect(lambda _, nf=codigo_func: self.show_edit_employee_form(nf))
 
                     # Cria botão de excluir
                     delete_btn = QPushButton("Excluir")
                     delete_btn.setFixedWidth(70)
                     delete_btn.setStyleSheet("padding: 4px; background-color: #f72585; color: white;")
-                    delete_btn.clicked.connect(lambda _, nf=cpf: self.excluir_funcionario(nf))
+                    delete_btn.clicked.connect(lambda _, nf=codigo_func: self.excluir_funcionario(nf))
 
                     # Adiciona os botões ao layout
                     actions_layout.addWidget(edit_btn)
@@ -1177,9 +1170,9 @@ class MainWindow(QMainWindow, BancoSQLite):
 
         Args:
             cpf (str): CPF do funcionário a ser excluído.
+            :param company_id:
         """
         try:
-            print(company_id)
             confirm = QMessageBox.question(
                 self,
                 "Confirmar Exclusão",
@@ -1210,6 +1203,8 @@ class MainWindow(QMainWindow, BancoSQLite):
             logger.error(f"Erro na exclusão do funcionário  {company_id}: {e}")
             QMessageBox.critical(self, "Erro", f"Ocorreu um erro: {e}")
 
+    # ----------------------- Importação Do ponto
+
     def init_timesheet_screen(self):
         timesheet_widget = QWidget()
         layout = QVBoxLayout(timesheet_widget)
@@ -1230,8 +1225,16 @@ class MainWindow(QMainWindow, BancoSQLite):
         import_form = QFormLayout(import_group)
 
         company_combo = QComboBox()
-        company_combo.addItems(
-            ["Selecione uma empresa", "TechSolutions LTDA", "Global Comércio S.A.", "Indústria Nacional LTDA"])
+
+        empresas = self.consultar_registros("cadastro_empresa")
+        if empresas:
+            for i in empresas:
+                codigo = i[0]
+                nome = i[1]
+                company_combo.addItem(f"{codigo} - {nome}")
+        else:
+            company_combo.addItem("Nenhuma empresa cadastrada")
+
         import_form.addRow("Empresa:", company_combo)
 
         date_from = QDateEdit()
@@ -1276,8 +1279,13 @@ class MainWindow(QMainWindow, BancoSQLite):
         export_form = QFormLayout(export_group)
 
         export_company_combo = QComboBox()
-        export_company_combo.addItems(
-            ["Todas as empresas", "TechSolutions LTDA", "Global Comércio S.A.", "Indústria Nacional LTDA"])
+        if empresas:
+            for i in empresas:
+                codigo = i[0]
+                nome = i[1]
+                export_company_combo.addItem(f"{codigo} - {nome}")
+        else:
+            export_company_combo.addItem("Nenhuma empresa cadastrada")
         export_form.addRow("Empresa:", export_company_combo)
 
         export_dept_combo = QComboBox()
@@ -1324,6 +1332,7 @@ class MainWindow(QMainWindow, BancoSQLite):
 
         view_filters_layout.addWidget(QLabel("Funcionário:"))
         employee_filter = QComboBox()
+
         employee_filter.addItems(
             ["Todos", "João Silva", "Maria Oliveira", "Pedro Santos", "Ana Costa", "Lucas Pereira"])
         view_filters_layout.addWidget(employee_filter)
@@ -1853,8 +1862,8 @@ class MainWindow(QMainWindow, BancoSQLite):
                 raise ValueError("O CNPJ não pode estar vazio.")
 
             # Insere ou atualiza os dados no banco de dados
-            self.inserir_ou_atualizar_registro("cadastro_empresa", dados, cnpj)
-
+            dados = self.inserir_ou_atualizar_registro("cadastro_empresa", dados, cnpj)
+            print("Cadastro da empresa:", dados)
             # Atualiza os dados da tabela sem recriar toda a tela
             self.load_companies_data()
             self.init_employees_screen()
@@ -2027,8 +2036,6 @@ class MainWindow(QMainWindow, BancoSQLite):
         self.conta.returnPressed.connect(lambda: save.click())  # Pressionar Enter em Conta clica em "Salvar"
 
         dialog.show()
-
-
 
     def browse_file(self, line_edit):
         file_name, _ = QFileDialog.getOpenFileName(self, "Selecionar Arquivo", "",
