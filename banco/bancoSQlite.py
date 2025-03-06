@@ -1,6 +1,6 @@
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Union
 from pathlib import Path
 import colorlog
@@ -285,6 +285,61 @@ class BancoSQLite:
             logger.error(f"Erro ao excluir registro com ID {registro_id} da tabela '{nome_tabela}': {str(e)}")
             return False
 
+    def cadastro_ponto(self):
+        try:
+            with self.transaction():
+                query = """
+                CREATE TABLE IF NOT EXISTS ponto (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        cpf TEXT NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        tipo TEXT CHECK(tipo IN ('entrada', 'saida')),
+                        codigo_empresa INTEGER NOT NULL,
+                        FOREIGN KEY (codigo_empresa) REFERENCES cadastro_empresa(id),
+                        FOREIGN KEY (cpf) REFERENCES cadastro_funcionario(cpf)
+                    );
+
+                    """
+                self.cursor.execute(query)
+            logger.info(f"Tabela ponto criada com sucesso!")
+            return True
+        except Exception as e:
+            logger.error(f"Erro ao criar a tabela ponto. {e}")
+            return False
+
+    def inserir_atualizar_ponto(self, cpf, timestamp, tipo, codigo_empresa):
+        try:
+            with self.transaction():
+                # Verifica se já existe um registro para o mesmo CPF e timestamp
+                query_verificar = """
+                SELECT id FROM ponto WHERE cpf = ? AND timestamp = ?
+                """
+                self.cursor.execute(query_verificar, (cpf, timestamp))
+                resultado = self.cursor.fetchone()
+
+                if resultado:
+                    # Atualizar o registro existente
+                    query_update = """
+                    UPDATE ponto 
+                    SET tipo = ?, codigo_empresa = ?
+                    WHERE id = ?
+                    """
+                    self.cursor.execute(query_update, (tipo, codigo_empresa, resultado[0]))
+                    logger.info(f"Registro atualizado para CPF {cpf} em {timestamp}.")
+                else:
+                    # Inserir um novo registro
+                    query_insert = """
+                    INSERT INTO ponto (cpf, timestamp, tipo, codigo_empresa)
+                    VALUES (?, ?, ?, ?)
+                    """
+                    self.cursor.execute(query_insert, (cpf, timestamp, tipo, codigo_empresa))
+                    logger.info(f"Novo registro inserido para CPF {cpf} em {timestamp}.")
+
+            return True
+        except Exception as e:
+            logger.error(f"Erro ao inserir/atualizar ponto. {e}")
+            return False
+
     def fechar_conexao(self) -> None:
         """Fecha a conexão com o banco de dados."""
         try:
@@ -293,8 +348,215 @@ class BancoSQLite:
         except Exception as e:
             logger.error(f"Erro ao fechar conexão com o banco: {str(e)}")
 
+    from datetime import datetime, timedelta
+    from collections import defaultdict
 
-# dados = BancoSQLite()
-# print(dados.consultar_registros("cadastro_funcionario", ))
-#
-# print(dados.estrutura_tabela("cadastro_funcionario"))
+    def calcular_horas_extras_faltantes(self, cpf, data, jornada_diaria=8):
+        try:
+            with self.transaction():
+                # Buscar registros do funcionário para a data especificada
+                query = """
+                SELECT timestamp, tipo FROM ponto 
+                WHERE cpf = ? AND timestamp LIKE ?
+                ORDER BY timestamp
+                """
+                self.cursor.execute(query, (cpf, f"{data}%"))
+                registros = self.cursor.fetchall()
+
+                if not registros:
+                    logger.warning(f"Nenhum registro encontrado para CPF {cpf} em {data}.")
+                    return None
+
+                # Converter registros para datetime
+                pontos = []
+                for timestamp, tipo in registros:
+                    pontos.append((datetime.fromisoformat(timestamp), tipo))
+
+                # Calcular horas trabalhadas
+                total_trabalhado = timedelta()
+                entrada = None
+
+                for horario, tipo in pontos:
+                    if tipo == "entrada":
+                        entrada = horario
+                    elif tipo == "saida" and entrada:
+                        total_trabalhado += (horario - entrada)
+                        entrada = None  # Resetar para próxima entrada
+
+                # Converter total para horas
+                horas_trabalhadas = total_trabalhado.total_seconds() / 3600
+
+                # Calcular horas extras ou faltantes
+                if horas_trabalhadas > jornada_diaria:
+                    horas_extras = horas_trabalhadas - jornada_diaria
+                    horas_faltantes = 0
+                else:
+                    horas_extras = 0
+                    horas_faltantes = jornada_diaria - horas_trabalhadas
+
+                return {
+                    "cpf": cpf,
+                    "data": data,
+                    "horas_trabalhadas": round(horas_trabalhadas, 2),
+                    "horas_extras": round(horas_extras, 2),
+                    "horas_faltantes": round(horas_faltantes, 2),
+                }
+        except Exception as e:
+            logger.error(f"Erro ao calcular horas extras/faltantes. {e}")
+            return None
+
+    def visualiza_ponto(self, mes_ano):
+        """
+        Método para visualizar os registros de ponto de funcionários em um mês e ano específicos.
+        Formato esperado para mes_ano: 'MM/YYYY' (ex: '02/2025')
+        """
+        try:
+            # Extrair mês e ano da string no formato MM/YYYY
+            mes, ano = mes_ano.split('/')
+
+            # Formatar mês com dois dígitos
+            mes_formatado = mes.zfill(2)
+
+            # Padrão para busca LIKE
+            padrao = f'{ano}-{mes_formatado}-%'
+
+            # Buscar registros do funcionário para o mês e ano especificados
+            query = """
+                SELECT 
+                    f.nome, 
+                    strftime('%d/%m/%Y', substr(p.timestamp, 1, 10)) AS data, 
+                    MIN(CASE WHEN p.tipo = 'entrada' THEN substr(p.timestamp, 12, 8) END) AS entrada_manha,
+                    MAX(CASE WHEN p.tipo = 'saida' AND substr(p.timestamp, 12, 8) < '12:30' THEN substr(p.timestamp, 12, 8) END) AS saida_manha,
+                    MIN(CASE WHEN p.tipo = 'entrada' AND substr(p.timestamp, 12, 8) > '12:30' THEN substr(p.timestamp, 12, 8) END) AS entrada_tarde,
+                    MAX(CASE WHEN p.tipo = 'saida' AND substr(p.timestamp, 12, 8) > '12:30' THEN substr(p.timestamp, 12, 8) END) AS saida_tarde
+                FROM ponto p
+                JOIN cadastro_funcionario f ON p.cpf = f.CPF
+                WHERE p.timestamp LIKE ?
+                GROUP BY f.nome, DATE(substr(p.timestamp, 1, 10))
+                ORDER BY DATE(substr(p.timestamp, 1, 10)), f.nome;
+            """
+
+            self.cursor.execute(query, (padrao,))
+            registros = self.cursor.fetchall()
+
+            # Caso não haja registros, retorna lista vazia
+            if not registros:
+                logger.warning(f"Nenhum registro de ponto encontrado para {mes_ano}.")
+                return []
+
+            print(f"Encontrados {len(registros)} registros de ponto para {mes_ano}.")
+            return registros
+
+        except Exception as e:
+            logger.error(f"Erro ao visualizar pontos. {e}")
+            return None
+
+    def verificar_registros(self):
+        query = "SELECT COUNT(*) FROM ponto"
+        self.cursor.execute(query)
+        total = self.cursor.fetchone()[0]
+        print(f"Total de registros na tabela ponto: {total}")
+        return total
+
+    def verificar_formato_timestamp(self):
+        query = "SELECT timestamp FROM ponto LIMIT 10"
+        self.cursor.execute(query)
+        resultados = self.cursor.fetchall()
+        for resultado in resultados:
+            print(resultado[0])
+        return resultados
+
+    def depurar_registros_ponto(self, mes, ano):
+        """
+        Função para depurar os registros de ponto e identificar problemas
+        """
+        try:
+            # Usar uma consulta extremamente simples para verificar se há dados para este mês/ano
+            query_simples = """
+                SELECT COUNT(*) 
+                FROM ponto 
+                WHERE timestamp LIKE ?
+            """
+
+            # Adicionar caracteres curinga antes e depois para capturar qualquer formato
+            padrao = f'%{ano}%{mes.zfill(2)}%'
+
+            self.cursor.execute(query_simples, (padrao,))
+            total = self.cursor.fetchone()[0]
+            print(f"Total de registros encontrados para '%{ano}%{mes.zfill(2)}%': {total}")
+
+            # Se temos registros, vamos ver alguns exemplos
+            if total > 0:
+                query_exemplos = """
+                    SELECT timestamp, tipo, cpf 
+                    FROM ponto 
+                    WHERE timestamp LIKE ? 
+                    LIMIT 5
+                """
+                self.cursor.execute(query_exemplos, (padrao,))
+                exemplos = self.cursor.fetchall()
+                print("Exemplos de registros encontrados:")
+                for ex in exemplos:
+                    print(ex)
+
+            # Verificar uso correto dos tipos de entrada/saída
+            query_tipos = """
+                SELECT tipo, COUNT(*) 
+                FROM ponto 
+                GROUP BY tipo
+            """
+            self.cursor.execute(query_tipos)
+            tipos = self.cursor.fetchall()
+            print("Tipos de registro e contagens:")
+            for t in tipos:
+                print(t)
+
+            return total
+
+        except Exception as e:
+            print(f"Erro na depuração: {e}")
+            return None
+
+    def buscar_ponto_sem_join(self, mes_ano):
+        """
+        Busca apenas na tabela ponto, sem JOIN
+        """
+        try:
+            mes, ano = mes_ano.split('/')
+            mes_formatado = mes.zfill(2)
+
+            # Padrão para busca
+            padrao = f'{ano}-{mes_formatado}'
+
+            query = """
+                SELECT id, cpf, timestamp, tipo
+                FROM ponto
+                WHERE timestamp LIKE ?
+                LIMIT 20
+            """
+
+            self.cursor.execute(query, (padrao + '%',))
+            registros = self.cursor.fetchall()
+
+            if not registros:
+                print(f"Nenhum registro encontrado na tabela ponto para {mes_ano}.")
+            else:
+                print(f"Encontrados {len(registros)} registros na tabela ponto.")
+                for r in registros:
+                    print(r)
+
+            return registros
+
+        except Exception as e:
+            print(f"Erro na consulta sem JOIN: {e}")
+            return None
+
+dados = BancoSQLite()
+
+print(dados.depurar_registros_ponto("02", "2025"))
+# print(dados.visualiza_ponto("02/2025"))
+
+
+info = dados.buscar_ponto_sem_join("02/2025")
+for i in info:
+    print(i)

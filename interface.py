@@ -1,4 +1,7 @@
+import os
 import sys
+from collections import defaultdict
+from datetime import datetime
 
 from PyQt6.QtCore import Qt, QDate, QSize
 from PyQt6.QtGui import QColor, QAction
@@ -480,6 +483,118 @@ class MainWindow(QMainWindow, BancoSQLite):
         # Carrega os dados do banco
         self.load_companies_data()
 
+    def show_add_company_form(self):
+        dialog = QWidget(self, Qt.WindowType.Dialog)
+        dialog.setWindowTitle("Adicionar Nova Empresa")
+        dialog.setMinimumWidth(400)
+        dialog.setStyleSheet("background-color: white; border-radius: 8px;")
+
+        layout = QVBoxLayout(dialog)
+
+        title = QLabel("Cadastro de Empresa")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #343a40; margin-bottom: 20px;")
+        layout.addWidget(title)
+
+        form = QFormLayout()
+
+        self.name_emp = QLineEdit()
+        self.name_emp.setPlaceholderText("Nome da empresa")
+        form.addRow("Nome:", self.name_emp)
+
+        self.cnpj = QLineEdit()
+        self.cnpj.setPlaceholderText("00.000.000/0000-00")
+        form.addRow("CNPJ:", self.cnpj)
+
+        self.address_emp = QLineEdit()
+        self.address_emp.setPlaceholderText("Endereço completo")
+        form.addRow("Endereço:", self.address_emp)
+
+        self.city_emp = QLineEdit()
+        self.city_emp.setPlaceholderText("Cidade")
+        form.addRow("Cidade:", self.city_emp)
+
+        self.estado_emp = QComboBox()
+        self.estado_emp.addItems(
+            ["Selecione", "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB",
+             "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"])
+        form.addRow("Estado:", self.estado_emp)
+
+        self.phone_emp = QLineEdit()
+        self.phone_emp.setPlaceholderText("(00) 0000-0000")
+        form.addRow("Telefone:", self.phone_emp)
+
+        self.email = QLineEdit()
+        self.email.setPlaceholderText("email@empresa.com")
+        form.addRow("Email:", self.email)
+
+        layout.addLayout(form)  # Adiciona o formulário ao layout principal
+
+        buttons = QHBoxLayout()
+
+        def save_and_close():
+            self.save_data()
+            dialog.close()  # Fecha o diálogo após salvar
+
+        save = QPushButton("Salvar")
+        save.setStyleSheet("background-color: #28a745; color: white; padding: 6px; border-radius: 4px;")
+        save.clicked.connect(save_and_close)
+
+        cancel = QPushButton("Cancelar")
+        cancel.setStyleSheet("background-color: #dc3545; color: white; padding: 6px; border-radius: 4px;")
+        cancel.clicked.connect(dialog.close)
+
+        buttons.addWidget(save)
+        buttons.addWidget(cancel)
+
+        layout.addLayout(buttons)  # Adiciona os botões ao layout principal
+
+        dialog.setLayout(layout)
+
+        self.name_emp.returnPressed.connect(lambda: self.cnpj.setFocus())
+        self.cnpj.returnPressed.connect(lambda: self.address_emp.setFocus())
+        self.address_emp.returnPressed.connect(lambda: self.city_emp.setFocus())
+        self.city_emp.returnPressed.connect(lambda: self.estado_emp.setFocus())
+        self.phone_emp.returnPressed.connect(lambda: self.email.setFocus())
+        self.email.returnPressed.connect(lambda: save.click())  # Pressionar Enter no email clica em "Salvar"
+
+        dialog.show()
+
+    def save_data(self):
+        try:
+            colunas = ("nome", "cnpj", "endereco", "cidade", "estado", "telefone", "email")
+
+            nome = self.name_emp.text()
+            cnpj = self.cnpj.text()
+            endereco = self.address_emp.text()
+            cidade = self.city_emp.text()
+            estado = self.estado_emp.currentText()
+            telefone = self.phone_emp.text()
+            email = self.email.text()
+
+            # Cria a tabela, se necessário
+            campos = {colunas[i]: "TEXT" for i in range(len(colunas))}
+            self.criar_tabela("cadastro_empresa", campos)
+
+            # Cria o dicionário de dados
+            dados = {colunas[i]: valor or " " for i, valor in
+                     enumerate([nome, cnpj, endereco, cidade, estado, telefone, email])}
+
+            # Validação extra para evitar erro
+            if not cnpj.strip():
+                raise ValueError("O CNPJ não pode estar vazio.")
+
+            # Insere ou atualiza os dados no banco de dados
+            dados = self.inserir_ou_atualizar_registro("cadastro_empresa", dados, cnpj)
+            print("Cadastro da empresa:", dados)
+            # Atualiza os dados da tabela sem recriar toda a tela
+            self.load_companies_data()
+            self.init_employees_screen()
+            self.load_employees_data()
+
+
+        except Exception as e:
+            print(f"Ocorreu um erro ao cadastrar: {e}")
+
     # ---------------------------------------------------------------------------------------------
     # Cadastro de Colaborador
 
@@ -681,7 +796,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                     edit_btn.setFixedWidth(70)
                     edit_btn.setStyleSheet("padding: 4px;")
                     # Use uma função parcial para fixar o valor de n_folha
-                    edit_btn.clicked.connect(lambda _, nf=codigo_func: self.show_edit_employee_form(nf))
+                    edit_btn.clicked.connect(lambda _, nf=cpf: self.show_edit_employee_form(nf))
 
                     # Cria botão de excluir
                     delete_btn = QPushButton("Excluir")
@@ -788,6 +903,7 @@ class MainWindow(QMainWindow, BancoSQLite):
             empresa_combo = QComboBox()
             try:
                 empresas = self.consultar_registros("cadastro_empresa")
+                print("cadastro empres:", empresas)
                 if empresas:
                     for emp in empresas:
                         empresa_combo.addItem(f"{emp[0]} - {emp[1]}")
@@ -1119,6 +1235,7 @@ class MainWindow(QMainWindow, BancoSQLite):
 
             # Cria a tabela "cadastro_funcionario", se necessário
             self.criar_tabela("cadastro_funcionario", estrutura_funcionario)
+            self.cadastro_ponto() # Cria a tabela ponto que vai usar FK da cadastro_funcionario
 
             # Cria o dicionário com os dados a serem inseridos
             dados = {
@@ -1162,7 +1279,12 @@ class MainWindow(QMainWindow, BancoSQLite):
             logger.info("Funcionário cadastrado com sucesso!")
         except Exception as e:
             logger.error(f"Ocorreu um erro ao cadastrar o funcionário: {e}")
-            print(f"Ocorreu um erro ao cadastrar o funcionário: {e}")
+            # Exibe a mensagem de erro com um QMessageBox
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Icon.Critical)
+            msg.setWindowTitle("Erro")
+            msg.setText(f"Ocorreu um erro ao cadastrar o funcionário: {e}")
+            msg.exec()
 
     def excluir_funcionario(self, company_id):
         """
@@ -1202,676 +1324,6 @@ class MainWindow(QMainWindow, BancoSQLite):
         except Exception as e:
             logger.error(f"Erro na exclusão do funcionário  {company_id}: {e}")
             QMessageBox.critical(self, "Erro", f"Ocorreu um erro: {e}")
-
-    # ----------------------- Importação Do ponto
-
-    def init_timesheet_screen(self):
-        timesheet_widget = QWidget()
-        layout = QVBoxLayout(timesheet_widget)
-
-        # Título
-        title = QLabel("Gestão de Ponto")
-        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #343a40; margin-bottom: 20px;")
-        layout.addWidget(title)
-
-        # Tabs
-        tabs = QTabWidget()
-
-        # Tab de Importação
-        import_tab = QWidget()
-        import_layout = QVBoxLayout(import_tab)
-
-        import_group = QGroupBox("Importar Arquivos de Ponto")
-        import_form = QFormLayout(import_group)
-
-        company_combo = QComboBox()
-
-        empresas = self.consultar_registros("cadastro_empresa")
-        if empresas:
-            for i in empresas:
-                codigo = i[0]
-                nome = i[1]
-                company_combo.addItem(f"{codigo} - {nome}")
-        else:
-            company_combo.addItem("Nenhuma empresa cadastrada")
-
-        import_form.addRow("Empresa:", company_combo)
-
-        date_from = QDateEdit()
-        date_from.setDate(QDate.currentDate().addDays(-30))
-        date_from.setCalendarPopup(True)
-        import_form.addRow("Data Inicial:", date_from)
-
-        date_to = QDateEdit()
-        date_to.setDate(QDate.currentDate())
-        date_to.setCalendarPopup(True)
-        import_form.addRow("Data Final:", date_to)
-
-        import_file_layout = QHBoxLayout()
-        import_file_path = QLineEdit()
-        import_file_path.setPlaceholderText("Selecione o arquivo...")
-        import_file_path.setReadOnly(True)
-
-        browse_btn = QPushButton("Procurar")
-        browse_btn.clicked.connect(lambda: self.browse_file(import_file_path))
-
-        import_file_layout.addWidget(import_file_path)
-        import_file_layout.addWidget(browse_btn)
-
-        import_form.addRow("Arquivo:", import_file_layout)
-
-        format_combo = QComboBox()
-        format_combo.addItems(["CSV", "TXT", "XLS", "XLSX"])
-        import_form.addRow("Formato:", format_combo)
-
-        import_btn = QPushButton("Importar Dados")
-        import_btn.clicked.connect(self.import_timesheet)
-        import_form.addRow("", import_btn)
-
-        import_layout.addWidget(import_group)
-        import_layout.addStretch()
-
-        # Tab de Exportação
-        export_tab = QWidget()
-        export_layout = QVBoxLayout(export_tab)
-
-        export_group = QGroupBox("Exportar Dados de Ponto")
-        export_form = QFormLayout(export_group)
-
-        export_company_combo = QComboBox()
-        if empresas:
-            for i in empresas:
-                codigo = i[0]
-                nome = i[1]
-                export_company_combo.addItem(f"{codigo} - {nome}")
-        else:
-            export_company_combo.addItem("Nenhuma empresa cadastrada")
-        export_form.addRow("Empresa:", export_company_combo)
-
-        export_dept_combo = QComboBox()
-        export_dept_combo.addItems(["Todos os departamentos", "TI", "RH", "Financeiro", "Marketing", "Operações"])
-        export_form.addRow("Departamento:", export_dept_combo)
-
-        export_date_from = QDateEdit()
-        export_date_from.setDate(QDate.currentDate().addDays(-30))
-        export_date_from.setCalendarPopup(True)
-        export_form.addRow("Data Inicial:", export_date_from)
-
-        export_date_to = QDateEdit()
-        export_date_to.setDate(QDate.currentDate())
-        export_date_to.setCalendarPopup(True)
-        export_form.addRow("Data Final:", export_date_to)
-
-        export_format_group = QGroupBox("Formato de Exportação")
-        export_format_layout = QVBoxLayout(export_format_group)
-
-        csv_radio = QRadioButton("CSV")
-        csv_radio.setChecked(True)
-        txt_radio = QRadioButton("TXT")
-        excel_radio = QRadioButton("Excel (XLSX)")
-
-        export_format_layout.addWidget(csv_radio)
-        export_format_layout.addWidget(txt_radio)
-        export_format_layout.addWidget(excel_radio)
-
-        export_form.addRow("", export_format_group)
-
-        export_btn = QPushButton("Exportar Dados")
-        export_btn.clicked.connect(self.export_timesheet)
-        export_form.addRow("", export_btn)
-
-        export_layout.addWidget(export_group)
-        export_layout.addStretch()
-
-        # Tab de Visualização
-        view_tab = QWidget()
-        view_layout = QVBoxLayout(view_tab)
-
-        view_filters = QGroupBox("Filtros")
-        view_filters_layout = QHBoxLayout(view_filters)
-
-        view_filters_layout.addWidget(QLabel("Funcionário:"))
-        employee_filter = QComboBox()
-
-        employee_filter.addItems(
-            ["Todos", "João Silva", "Maria Oliveira", "Pedro Santos", "Ana Costa", "Lucas Pereira"])
-        view_filters_layout.addWidget(employee_filter)
-
-        view_filters_layout.addWidget(QLabel("Data:"))
-        view_date = QDateEdit()
-        view_date.setDate(QDate.currentDate())
-        view_date.setCalendarPopup(True)
-        view_filters_layout.addWidget(view_date)
-
-        view_filter_btn = QPushButton("Filtrar")
-        view_filters_layout.addWidget(view_filter_btn)
-
-        view_layout.addWidget(view_filters)
-
-        # Tabela de ponto
-        view_table = QTableWidget()
-        view_table.setColumnCount(6)
-        view_table.setHorizontalHeaderLabels(
-            ["Funcionário", "Data", "Entrada", "Saída Almoço", "Retorno Almoço", "Saída"])
-
-        # Dados de exemplo
-        sample_timesheet = [
-            ("João Silva", "24/02/2025", "08:00", "12:00", "13:00", "17:00"),
-            ("Maria Oliveira", "24/02/2025", "09:00", "12:30", "13:30", "18:00"),
-            ("Pedro Santos", "24/02/2025", "08:30", "12:15", "13:15", "17:30"),
-            ("Ana Costa", "24/02/2025", "09:30", "13:00", "14:00", "18:30"),
-            ("Lucas Pereira", "24/02/2025", "08:15", "12:00", "13:00", "17:15")
-        ]
-
-        view_table.setRowCount(len(sample_timesheet))
-
-        for row, (employee, date, entry, lunch_out, lunch_in, exit_time) in enumerate(sample_timesheet):
-            view_table.setItem(row, 0, QTableWidgetItem(employee))
-            view_table.setItem(row, 1, QTableWidgetItem(date))
-            view_table.setItem(row, 2, QTableWidgetItem(entry))
-            view_table.setItem(row, 3, QTableWidgetItem(lunch_out))
-            view_table.setItem(row, 4, QTableWidgetItem(lunch_in))
-            view_table.setItem(row, 5, QTableWidgetItem(exit_time))
-
-        view_layout.addWidget(view_table)
-
-        # Adicionar as tabs
-        tabs.addTab(import_tab, "Importação")
-        tabs.addTab(export_tab, "Exportação")
-        tabs.addTab(view_tab, "Visualização")
-
-        layout.addWidget(tabs)
-
-        self.stack.addWidget(timesheet_widget)
-
-    def init_reports_screen(self):
-        reports_widget = QWidget()
-        layout = QVBoxLayout(reports_widget)
-
-        # Título
-        title = QLabel("Relatórios")
-        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #343a40; margin-bottom: 20px;")
-        layout.addWidget(title)
-
-        # Tabs para diferentes relatórios
-        tabs = QTabWidget()
-
-        # Tab de Horas Trabalhadas
-        hours_tab = QWidget()
-        hours_layout = QVBoxLayout(hours_tab)
-
-        hours_filter = QGroupBox("Filtros")
-        hours_filter_layout = QFormLayout(hours_filter)
-
-        hours_company = QComboBox()
-        hours_company.addItems(
-            ["Todas as empresas", "TechSolutions LTDA", "Global Comércio S.A.", "Indústria Nacional LTDA"])
-        hours_filter_layout.addRow("Empresa:", hours_company)
-
-        hours_dept = QComboBox()
-        hours_dept.addItems(["Todos os departamentos", "TI", "RH", "Financeiro", "Marketing", "Operações"])
-        hours_filter_layout.addRow("Departamento:", hours_dept)
-
-        hours_date_from = QDateEdit()
-        hours_date_from.setDate(QDate.currentDate().addDays(-30))
-        hours_date_from.setCalendarPopup(True)
-        hours_filter_layout.addRow("Data Inicial:", hours_date_from)
-
-        hours_date_to = QDateEdit()
-        hours_date_to.setDate(QDate.currentDate())
-        hours_date_to.setCalendarPopup(True)
-        hours_filter_layout.addRow("Data Final:", hours_date_to)
-
-        hours_generate = QPushButton("Gerar Relatório")
-        hours_filter_layout.addRow("", hours_generate)
-
-        hours_layout.addWidget(hours_filter)
-
-        hours_table = QTableWidget()
-        hours_table.setColumnCount(5)
-        hours_table.setHorizontalHeaderLabels(
-            ["Funcionário", "Empresa", "Total Horas", "Horas Extras", "Horas Faltantes"])
-
-        # Dados de exemplo
-        sample_hours = [
-            ("João Silva", "TechSolutions LTDA", "160:00", "5:30", "0:00"),
-            ("Maria Oliveira", "TechSolutions LTDA", "158:45", "0:00", "1:15"),
-            ("Pedro Santos", "Global Comércio S.A.", "162:30", "2:30", "0:00"),
-            ("Ana Costa", "Global Comércio S.A.", "165:00", "5:00", "0:00"),
-            ("Lucas Pereira", "Indústria Nacional LTDA", "120:00", "0:00", "40:00")
-        ]
-
-        hours_table.setRowCount(len(sample_hours))
-
-        for row, (employee, company, total, extra, missing) in enumerate(sample_hours):
-            hours_table.setItem(row, 0, QTableWidgetItem(employee))
-            hours_table.setItem(row, 1, QTableWidgetItem(company))
-            hours_table.setItem(row, 2, QTableWidgetItem(total))
-
-            extra_item = QTableWidgetItem(extra)
-            if extra != "0:00":
-                extra_item.setForeground(QColor("#28a745"))
-            hours_table.setItem(row, 3, extra_item)
-
-            missing_item = QTableWidgetItem(missing)
-            if missing != "0:00":
-                missing_item.setForeground(QColor("#dc3545"))
-            hours_table.setItem(row, 4, missing_item)
-
-        hours_layout.addWidget(hours_table)
-
-        export_buttons = QHBoxLayout()
-        export_csv = QPushButton("Exportar CSV")
-        export_csv.setStyleSheet("background-color: #6c757d;")
-
-        export_txt = QPushButton("Exportar TXT")
-        export_txt.setStyleSheet("background-color: #6c757d;")
-
-        export_pdf = QPushButton("Exportar PDF")
-        export_pdf.setStyleSheet("background-color: #6c757d;")
-
-        export_buttons.addWidget(export_csv)
-        export_buttons.addWidget(export_txt)
-        export_buttons.addWidget(export_pdf)
-        export_buttons.addStretch()
-
-        hours_layout.addLayout(export_buttons)
-
-        # Tab de Faltas e Atrasos
-        absences_tab = QWidget()
-        absences_layout = QVBoxLayout(absences_tab)
-
-        absences_filter = QGroupBox("Filtros")
-        absences_filter_layout = QFormLayout(absences_filter)
-
-        absences_company = QComboBox()
-        absences_company.addItems(
-            ["Todas as empresas", "TechSolutions LTDA", "Global Comércio S.A.", "Indústria Nacional LTDA"])
-        absences_filter_layout.addRow("Empresa:", absences_company)
-
-        absences_type = QComboBox()
-        absences_type.addItems(["Todos os tipos", "Faltas", "Atrasos", "Saídas antecipadas"])
-        absences_filter_layout.addRow("Tipo:", absences_type)
-
-        absences_date_from = QDateEdit()
-        absences_date_from.setDate(QDate.currentDate().addDays(-30))
-        absences_date_from.setCalendarPopup(True)
-        absences_filter_layout.addRow("Data Inicial:", absences_date_from)
-
-        absences_date_to = QDateEdit()
-        absences_date_to.setDate(QDate.currentDate())
-        absences_date_to.setCalendarPopup(True)
-        absences_filter_layout.addRow("Data Final:", absences_date_to)
-
-        absences_generate = QPushButton("Gerar Relatório")
-        absences_filter_layout.addRow("", absences_generate)
-
-        absences_layout.addWidget(absences_filter)
-
-        absences_table = QTableWidget()
-        absences_table.setColumnCount(5)
-        absences_table.setHorizontalHeaderLabels(["Funcionário", "Empresa", "Data", "Tipo", "Observação"])
-
-        # Dados de exemplo
-        sample_absences = [
-            ("Lucas Pereira", "Indústria Nacional LTDA", "15/02/2025", "Falta", "Atestado médico"),
-            ("Maria Oliveira", "TechSolutions LTDA", "18/02/2025", "Atraso", "Trânsito (30 min)"),
-            ("Pedro Santos", "Global Comércio S.A.", "10/02/2025", "Saída antecipada", "Consulta médica (1 hora)"),
-            ("Ana Costa", "Global Comércio S.A.", "22/02/2025", "Atraso", "Transporte público (15 min)"),
-            ("Lucas Pereira", "Indústria Nacional LTDA", "23/02/2025", "Falta", "Não justificada")
-        ]
-
-        absences_table.setRowCount(len(sample_absences))
-
-        for row, (employee, company, date, absence_type, note) in enumerate(sample_absences):
-            absences_table.setItem(row, 0, QTableWidgetItem(employee))
-            absences_table.setItem(row, 1, QTableWidgetItem(company))
-            absences_table.setItem(row, 2, QTableWidgetItem(date))
-
-            type_item = QTableWidgetItem(absence_type)
-            if absence_type == "Falta":
-                type_item.setForeground(QColor("#dc3545"))
-            elif absence_type == "Atraso":
-                type_item.setForeground(QColor("#fd7e14"))
-            else:
-                type_item.setForeground(QColor("#6c757d"))
-
-            absences_table.setItem(row, 3, type_item)
-            absences_table.setItem(row, 4, QTableWidgetItem(note))
-
-        absences_layout.addWidget(absences_table)
-
-        absences_export = QHBoxLayout()
-        absences_csv = QPushButton("Exportar CSV")
-        absences_csv.setStyleSheet("background-color: #6c757d;")
-
-        absences_txt = QPushButton("Exportar TXT")
-        absences_txt.setStyleSheet("background-color: #6c757d;")
-
-        absences_pdf = QPushButton("Exportar PDF")
-        absences_pdf.setStyleSheet("background-color: #6c757d;")
-
-        absences_export.addWidget(absences_csv)
-        absences_export.addWidget(absences_txt)
-        absences_export.addWidget(absences_pdf)
-        absences_export.addStretch()
-
-        absences_layout.addLayout(absences_export)
-
-        # Tab de Relatório de Funcionários
-        employees_tab = QWidget()
-        employees_layout = QVBoxLayout(employees_tab)
-
-        employees_filter = QGroupBox("Filtros")
-        employees_filter_layout = QFormLayout(employees_filter)
-
-        employees_report_company = QComboBox()
-        employees_report_company.addItems(
-            ["Todas as empresas", "TechSolutions LTDA", "Global Comércio S.A.", "Indústria Nacional LTDA"])
-        employees_filter_layout.addRow("Empresa:", employees_report_company)
-
-        employees_report_dept = QComboBox()
-        employees_report_dept.addItems(["Todos os departamentos", "TI", "RH", "Financeiro", "Marketing", "Operações"])
-        employees_filter_layout.addRow("Departamento:", employees_report_dept)
-
-        employees_report_status = QComboBox()
-        employees_report_status.addItems(["Todos", "Ativo", "Inativo", "Férias", "Afastado"])
-        employees_filter_layout.addRow("Status:", employees_report_status)
-
-        employees_report_generate = QPushButton("Gerar Relatório")
-        employees_filter_layout.addRow("", employees_report_generate)
-
-        employees_layout.addWidget(employees_filter)
-
-        employees_report_table = QTableWidget()
-        employees_report_table.setColumnCount(7)
-        employees_report_table.setHorizontalHeaderLabels(
-            ["Nome", "Empresa", "Departamento", "Cargo", "Data Admissão", "Status", "Jornada"])
-
-        # Dados de exemplo
-        sample_employees_report = [
-            ("João Silva", "TechSolutions LTDA", "TI", "Desenvolvedor", "15/01/2023", "Ativo", "40h/semana"),
-            ("Maria Oliveira", "TechSolutions LTDA", "RH", "Analista de RH", "05/03/2022", "Ativo", "40h/semana"),
-            ("Pedro Santos", "Global Comércio S.A.", "Financeiro", "Contador", "22/08/2021", "Férias", "40h/semana"),
-            ("Ana Costa", "Global Comércio S.A.", "Marketing", "Gerente de Marketing", "10/05/2020", "Ativo",
-             "40h/semana"),
-            ("Lucas Pereira", "Indústria Nacional LTDA", "Operações", "Supervisor", "03/11/2022", "Afastado",
-             "44h/semana")
-        ]
-
-        employees_report_table.setRowCount(len(sample_employees_report))
-
-        for row, (name, company, dept, position, hire_date, status, workload) in enumerate(sample_employees_report):
-            employees_report_table.setItem(row, 0, QTableWidgetItem(name))
-            employees_report_table.setItem(row, 1, QTableWidgetItem(company))
-            employees_report_table.setItem(row, 2, QTableWidgetItem(dept))
-            employees_report_table.setItem(row, 3, QTableWidgetItem(position))
-            employees_report_table.setItem(row, 4, QTableWidgetItem(hire_date))
-
-            status_item = QTableWidgetItem(status)
-            if status == "Ativo":
-                status_item.setForeground(QColor("#28a745"))
-            elif status == "Férias":
-                status_item.setForeground(QColor("#fd7e14"))
-            elif status == "Afastado":
-                status_item.setForeground(QColor("#dc3545"))
-
-            employees_report_table.setItem(row, 5, status_item)
-            employees_report_table.setItem(row, 6, QTableWidgetItem(workload))
-
-        employees_layout.addWidget(employees_report_table)
-
-        employees_report_export = QHBoxLayout()
-        employees_report_csv = QPushButton("Exportar CSV")
-        employees_report_csv.setStyleSheet("background-color: #6c757d;")
-
-        employees_report_txt = QPushButton("Exportar TXT")
-        employees_report_txt.setStyleSheet("background-color: #6c757d;")
-
-        employees_report_pdf = QPushButton("Exportar PDF")
-        employees_report_pdf.setStyleSheet("background-color: #6c757d;")
-
-        employees_report_export.addWidget(employees_report_csv)
-        employees_report_export.addWidget(employees_report_txt)
-        employees_report_export.addWidget(employees_report_pdf)
-        employees_report_export.addStretch()
-
-        employees_layout.addLayout(employees_report_export)
-
-        # Adicionar as tabs
-        tabs.addTab(hours_tab, "Horas Trabalhadas")
-        tabs.addTab(absences_tab, "Faltas e Atrasos")
-        tabs.addTab(employees_tab, "Funcionários")
-
-        layout.addWidget(tabs)
-
-        self.stack.addWidget(reports_widget)
-
-    def init_settings_screen(self):
-        settings_widget = QWidget()
-        layout = QVBoxLayout(settings_widget)
-
-        # Título
-        title = QLabel("Configurações do Sistema")
-        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #343a40; margin-bottom: 20px;")
-        layout.addWidget(title)
-
-        # Configurações de Importação/Exportação
-        import_export_group = QGroupBox("Configurações de Importação/Exportação")
-        import_export_layout = QFormLayout(import_export_group)
-
-        default_import_format = QComboBox()
-        default_import_format.addItems(["CSV", "TXT", "XLS", "XLSX"])
-        import_export_layout.addRow("Formato padrão de importação:", default_import_format)
-
-        default_export_format = QComboBox()
-        default_export_format.addItems(["CSV", "TXT", "XLSX"])
-        import_export_layout.addRow("Formato padrão de exportação:", default_export_format)
-
-        delimiter = QComboBox()
-        delimiter.addItems([",", ";", "Tab", "|"])
-        import_export_layout.addRow("Delimitador CSV:", delimiter)
-
-        encoding = QComboBox()
-        encoding.addItems(["UTF-8", "ISO-8859-1", "Windows-1252"])
-        import_export_layout.addRow("Encoding:", encoding)
-
-        layout.addWidget(import_export_group)
-
-        # Configurações de Interface
-        ui_group = QGroupBox("Configurações de Interface")
-        ui_layout = QFormLayout(ui_group)
-
-        theme = QComboBox()
-        theme.addItems(["Claro", "Escuro", "Sistema"])
-        ui_layout.addRow("Tema:", theme)
-
-        confirm_delete = QCheckBox()
-        confirm_delete.setChecked(True)
-        ui_layout.addRow("Confirmar antes de excluir:", confirm_delete)
-
-        rows_per_page = QSpinBox()
-        rows_per_page.setMinimum(10)
-        rows_per_page.setMaximum(100)
-        rows_per_page.setValue(20)
-        rows_per_page.setSingleStep(5)
-        ui_layout.addRow("Linhas por página:", rows_per_page)
-
-        layout.addWidget(ui_group)
-
-        # Configurações de Ponto
-        timesheet_group = QGroupBox("Configurações de Ponto")
-        timesheet_layout = QFormLayout(timesheet_group)
-
-        workday_hours = QSpinBox()
-        workday_hours.setMinimum(4)
-        workday_hours.setMaximum(12)
-        workday_hours.setValue(8)
-        timesheet_layout.addRow("Horas de trabalho diárias padrão:", workday_hours)
-
-        tolerance = QSpinBox()
-        tolerance.setMinimum(0)
-        tolerance.setMaximum(60)
-        tolerance.setValue(10)
-        tolerance.setSuffix(" min")
-        timesheet_layout.addRow("Tolerância para atrasos:", tolerance)
-
-        auto_import = QCheckBox()
-        auto_import.setChecked(False)
-        timesheet_layout.addRow("Importação automática de ponto:", auto_import)
-
-        layout.addWidget(timesheet_group)
-
-        # Botões
-        buttons_layout = QHBoxLayout()
-        save_btn = QPushButton("Salvar Configurações")
-        save_btn.clicked.connect(self.save_settings)
-
-        reset_btn = QPushButton("Restaurar Padrões")
-        reset_btn.setStyleSheet("background-color: #6c757d;")
-
-        buttons_layout.addWidget(save_btn)
-        buttons_layout.addWidget(reset_btn)
-        buttons_layout.addStretch()
-
-        layout.addLayout(buttons_layout)
-        layout.addStretch()
-
-        self.stack.addWidget(settings_widget)
-
-        # Métodos de navegação
-
-    def show_home(self):
-        self.stack.setCurrentIndex(0)
-
-    def show_companies(self):
-        self.stack.setCurrentIndex(1)
-
-    def show_employees(self):
-        self.stack.setCurrentIndex(2)
-
-    def show_timesheet(self):
-        self.stack.setCurrentIndex(3)
-
-    def show_reports(self):
-        self.stack.setCurrentIndex(4)
-
-    def show_settings(self):
-        self.stack.setCurrentIndex(5)
-
-        # Métodos para formulários e ações
-
-    def show_add_company_form(self):
-        dialog = QWidget(self, Qt.WindowType.Dialog)
-        dialog.setWindowTitle("Adicionar Nova Empresa")
-        dialog.setMinimumWidth(400)
-        dialog.setStyleSheet("background-color: white; border-radius: 8px;")
-
-        layout = QVBoxLayout(dialog)
-
-        title = QLabel("Cadastro de Empresa")
-        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #343a40; margin-bottom: 20px;")
-        layout.addWidget(title)
-
-        form = QFormLayout()
-
-        self.name_emp = QLineEdit()
-        self.name_emp.setPlaceholderText("Nome da empresa")
-        form.addRow("Nome:", self.name_emp)
-
-        self.cnpj = QLineEdit()
-        self.cnpj.setPlaceholderText("00.000.000/0000-00")
-        form.addRow("CNPJ:", self.cnpj)
-
-        self.address_emp = QLineEdit()
-        self.address_emp.setPlaceholderText("Endereço completo")
-        form.addRow("Endereço:", self.address_emp)
-
-        self.city_emp = QLineEdit()
-        self.city_emp.setPlaceholderText("Cidade")
-        form.addRow("Cidade:", self.city_emp)
-
-        self.estado_emp = QComboBox()
-        self.estado_emp.addItems(
-            ["Selecione", "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB",
-             "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"])
-        form.addRow("Estado:", self.estado_emp)
-
-        self.phone_emp = QLineEdit()
-        self.phone_emp.setPlaceholderText("(00) 0000-0000")
-        form.addRow("Telefone:", self.phone_emp)
-
-        self.email = QLineEdit()
-        self.email.setPlaceholderText("email@empresa.com")
-        form.addRow("Email:", self.email)
-
-        layout.addLayout(form)  # Adiciona o formulário ao layout principal
-
-        buttons = QHBoxLayout()
-
-        def save_and_close():
-            self.save_data()
-            dialog.close()  # Fecha o diálogo após salvar
-
-        save = QPushButton("Salvar")
-        save.setStyleSheet("background-color: #28a745; color: white; padding: 6px; border-radius: 4px;")
-        save.clicked.connect(save_and_close)
-
-        cancel = QPushButton("Cancelar")
-        cancel.setStyleSheet("background-color: #dc3545; color: white; padding: 6px; border-radius: 4px;")
-        cancel.clicked.connect(dialog.close)
-
-        buttons.addWidget(save)
-        buttons.addWidget(cancel)
-
-        layout.addLayout(buttons)  # Adiciona os botões ao layout principal
-
-        dialog.setLayout(layout)
-
-        self.name_emp.returnPressed.connect(lambda: self.cnpj.setFocus())
-        self.cnpj.returnPressed.connect(lambda: self.address_emp.setFocus())
-        self.address_emp.returnPressed.connect(lambda: self.city_emp.setFocus())
-        self.city_emp.returnPressed.connect(lambda: self.estado_emp.setFocus())
-        self.phone_emp.returnPressed.connect(lambda: self.email.setFocus())
-        self.email.returnPressed.connect(lambda: save.click())  # Pressionar Enter no email clica em "Salvar"
-
-        dialog.show()
-
-    def save_data(self):
-        try:
-            colunas = ("nome", "cnpj", "endereco", "cidade", "estado", "telefone", "email")
-
-            nome = self.name_emp.text()
-            cnpj = self.cnpj.text()
-            endereco = self.address_emp.text()
-            cidade = self.city_emp.text()
-            estado = self.estado_emp.currentText()
-            telefone = self.phone_emp.text()
-            email = self.email.text()
-
-            # Cria a tabela, se necessário
-            campos = {colunas[i]: "TEXT" for i in range(len(colunas))}
-            self.criar_tabela("cadastro_empresa", campos)
-
-            # Cria o dicionário de dados
-            dados = {colunas[i]: valor or " " for i, valor in
-                     enumerate([nome, cnpj, endereco, cidade, estado, telefone, email])}
-
-            # Validação extra para evitar erro
-            if not cnpj.strip():
-                raise ValueError("O CNPJ não pode estar vazio.")
-
-            # Insere ou atualiza os dados no banco de dados
-            dados = self.inserir_ou_atualizar_registro("cadastro_empresa", dados, cnpj)
-            print("Cadastro da empresa:", dados)
-            # Atualiza os dados da tabela sem recriar toda a tela
-            self.load_companies_data()
-            self.init_employees_screen()
-            self.load_employees_data()
-
-
-        except Exception as e:
-            print(f"Ocorreu um erro ao cadastrar: {e}")
 
     def show_add_employee_form(self):
         # Aba de novo funcionário
@@ -2037,12 +1489,978 @@ class MainWindow(QMainWindow, BancoSQLite):
 
         dialog.show()
 
-    def browse_file(self, line_edit):
-        file_name, _ = QFileDialog.getOpenFileName(self, "Selecionar Arquivo", "",
-                                                   "Todos os Arquivos (*);;Arquivos CSV (*.csv);;Arquivos de Texto ("
-                                                   "*.txt);;Arquivos Excel (*.xls *.xlsx)")
-        if file_name:
-            line_edit.setText(file_name)
+    # ----------------------- Importação Do ponto
+
+    def init_timesheet_screen(self):
+        try:
+
+            timesheet_widget = QWidget()
+            layout = QVBoxLayout(timesheet_widget)
+
+            # Título
+            title = QLabel("Gestão de Ponto")
+            title.setStyleSheet("font-size: 20px; font-weight: bold; color: #343a40; margin-bottom: 20px;")
+            layout.addWidget(title)
+
+            # Tabs
+            tabs = QTabWidget()
+
+            # Tab de Importação
+            import_tab = QWidget()
+            import_layout = QVBoxLayout(import_tab)
+
+            import_group = QGroupBox("Importar Arquivos de Ponto")
+            import_form = QFormLayout(import_group)
+
+            company_combo = QComboBox()
+
+            empresas = self.consultar_registros("cadastro_empresa")
+            if empresas:
+                for i in empresas:
+                    codigo = i[0]
+                    nome = i[1]
+                    company_combo.addItem(f"{codigo} - {nome}")
+            else:
+                company_combo.addItem("Nenhuma empresa cadastrada")
+
+            import_form.addRow("Empresa:", company_combo)
+
+            date_from = QDateEdit()
+            date_from.setDate(QDate.currentDate().addDays(-30))
+            date_from.setCalendarPopup(True)
+            import_form.addRow("Data Inicial:", date_from)
+
+            date_to = QDateEdit()
+            date_to.setDate(QDate.currentDate())
+            date_to.setCalendarPopup(True)
+            import_form.addRow("Data Final:", date_to)
+
+            self.import_file_layout = QHBoxLayout()
+            import_file_path = QLineEdit()
+            import_file_path.setPlaceholderText("Selecione o arquivo...")
+            import_file_path.setReadOnly(True)
+
+            browse_btn = QPushButton("Procurar")
+            self.import_file_path = import_file_path  # Salve como atributo
+            browse_btn.clicked.connect(lambda: self.browse_file())
+
+            self.import_file_layout.addWidget(import_file_path)
+            self.import_file_layout.addWidget(browse_btn)
+
+            import_form.addRow("Arquivo:", self.import_file_layout)
+
+            format_combo = QComboBox()
+            format_combo.addItems(["TXT","CSV", "XLS", "XLSX"])
+            import_form.addRow("Formato:", format_combo)
+
+            import_btn = QPushButton("Importar Dados")
+            import_btn.clicked.connect(self.import_dados)
+            import_form.addRow("", import_btn)
+
+            import_layout.addWidget(import_group)
+            import_layout.addStretch()
+
+            # Tab de Exportação
+            export_tab = QWidget()
+            export_layout = QVBoxLayout(export_tab)
+
+            export_group = QGroupBox("Exportar Dados de Ponto")
+            export_form = QFormLayout(export_group)
+
+            export_company_combo = QComboBox()
+            if empresas:
+                for i in empresas:
+                    codigo = i[0]
+                    nome = i[1]
+                    export_company_combo.addItem(f"{codigo} - {nome}")
+            else:
+                export_company_combo.addItem("Nenhuma empresa cadastrada")
+            export_form.addRow("Empresa:", export_company_combo)
+
+            export_dept_combo = QComboBox()
+            export_dept_combo.addItems(["Todos os departamentos", "TI", "RH", "Financeiro", "Marketing", "Operações"])
+            export_form.addRow("Departamento:", export_dept_combo)
+
+            export_date_from = QDateEdit()
+            export_date_from.setDate(QDate.currentDate().addDays(-30))
+            export_date_from.setCalendarPopup(True)
+            export_form.addRow("Data Inicial:", export_date_from)
+
+            export_date_to = QDateEdit()
+            export_date_to.setDate(QDate.currentDate())
+            export_date_to.setCalendarPopup(True)
+            export_form.addRow("Data Final:", export_date_to)
+
+            export_format_group = QGroupBox("Formato de Exportação")
+            export_format_layout = QVBoxLayout(export_format_group)
+
+            csv_radio = QRadioButton("CSV")
+            csv_radio.setChecked(True)
+            txt_radio = QRadioButton("TXT")
+            excel_radio = QRadioButton("Excel (XLSX)")
+
+            export_format_layout.addWidget(csv_radio)
+            export_format_layout.addWidget(txt_radio)
+            export_format_layout.addWidget(excel_radio)
+
+            export_form.addRow("", export_format_group)
+
+            export_btn = QPushButton("Exportar Dados")
+            export_btn.clicked.connect(self.export_timesheet)
+            export_form.addRow("", export_btn)
+
+            export_layout.addWidget(export_group)
+            export_layout.addStretch()
+
+            # Tab de Visualização
+            view_tab = QWidget()
+            view_layout = QVBoxLayout(view_tab)
+
+            view_filters = QGroupBox("Filtros")
+            view_filters_layout = QHBoxLayout(view_filters)
+
+            view_filters_layout.addWidget(QLabel("Funcionário:"))
+            employee_filter = QComboBox()
+
+            employee_filter.addItems(
+                ["Não desenvolvido 😎"])
+            view_filters_layout.addWidget(employee_filter)
+
+            view_filters_layout.addWidget(QLabel("Data:"))
+            view_date = QDateEdit()
+            view_date.setDate(QDate.currentDate())
+            view_date.setCalendarPopup(True)
+            view_filters_layout.addWidget(view_date)
+
+            view_filter_btn = QPushButton("Filtrar")
+            view_filters_layout.addWidget(view_filter_btn)
+
+            view_layout.addWidget(view_filters)
+
+            # Tabela de ponto
+            view_table = QTableWidget()
+            view_table.setColumnCount(6)
+            view_table.setHorizontalHeaderLabels(
+                ["Funcionário", "Data", "Entrada", "Saída Almoço", "Retorno Almoço", "Saída"])
+
+            # Dados de exemplo
+            sample_timesheet = self.visualiza_ponto("02/2025")
+
+            view_table.setRowCount(len(sample_timesheet))
+
+            for row, (employee, date, entry, lunch_out, lunch_in, exit_time) in enumerate(sample_timesheet):
+                view_table.setItem(row, 0, QTableWidgetItem(employee))
+                view_table.setItem(row, 1, QTableWidgetItem(date))
+                view_table.setItem(row, 2, QTableWidgetItem(entry))
+                view_table.setItem(row, 3, QTableWidgetItem(lunch_out))
+                view_table.setItem(row, 4, QTableWidgetItem(lunch_in))
+                view_table.setItem(row, 5, QTableWidgetItem(exit_time))
+
+            view_layout.addWidget(view_table)
+
+            # Adicionar as tabs
+            tabs.addTab(import_tab, "Importação")
+            tabs.addTab(export_tab, "Exportação")
+            tabs.addTab(view_tab, "Visualização")
+
+            layout.addWidget(tabs)
+
+            self.stack.addWidget(timesheet_widget)
+            self.company_combo = company_combo
+            self.date_from = date_from
+            self.date_to = date_to
+            self.format_combo = format_combo
+        except Exception  as e:
+            print(e)
+
+    def import_dados(self):
+        """
+        Método principal para importação de dados de ponto
+        """
+        try:
+            # Verifica se um arquivo foi selecionado
+            file_path = self.import_file_path.text()
+            if not file_path:
+                QMessageBox.warning(self, "Erro", "Selecione um arquivo para importação.")
+                return
+
+            # Valida se o arquivo existe
+            if not os.path.exists(file_path):
+                QMessageBox.critical(self, "Erro", "O arquivo selecionado não existe.")
+                return
+
+            # Obtém informações do arquivo
+            file_size = os.path.getsize(file_path)
+            file_extension = os.path.splitext(file_path)[1].lower()
+
+            # Validações de tamanho e tipo de arquivo
+            if file_size == 0:
+                QMessageBox.warning(self, "Erro", "O arquivo está vazio.")
+                return
+
+            if file_extension not in ['.txt', '.csv', '.xls', '.xlsx']:
+                QMessageBox.warning(self, "Erro", "Formato de arquivo não suportado.")
+                return
+
+            # Lê os registros do arquivo
+            registros = self.processar_pontos(self._processar_arquivo(file_path))
+
+
+            # Obtém dados do formulário
+            empresa = self.company_combo.currentText()
+            data_inicial = self.date_from.date().toString("dd/MM/yyyy")
+            data_final = self.date_to.date().toString("dd/MM/yyyy")
+            formato_selecionado = self.format_combo.currentText()
+
+            # Filtra registros por data
+            registros_filtrados = self._filtrar_registros_por_data(registros, data_inicial, data_final)
+
+            for p in registros_filtrados:
+                print(p)
+                if len(p["codigo"]) > 9 > len(p["valor"]):
+                    # Importa para o banco os dados
+                    self.inserir_atualizar_ponto(cpf=p["codigo"], timestamp=p["timestamp"],
+                                                 tipo=p["tipo"], codigo_empresa=empresa)
+
+            # Mensagem de sucesso
+            QMessageBox.information(
+                self,
+                "Importação Concluída",
+                f"Importação realizada com sucesso!\n"
+                f"Empresa: {empresa}\n"
+                f"Registros importados: {len(registros_filtrados)}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erro de Importação",
+                f"Ocorreu um erro durante a importação:\n{str(e)}"
+            )
+
+    def processar_pontos(self, registros):
+        if not registros:
+            QMessageBox.warning(self, "Aviso", "Nenhum registro válido encontrado no arquivo.")
+            return
+        try:
+            # Dicionário para agrupar registros por CPF e data
+            registros_por_funcionario = defaultdict(list)
+            # Organizar os registros por funcionário e data
+            for r in registros:
+                if len(r["codigo"]) > 9:
+                    cpf = r['codigo']
+                    data = r['timestamp'][:10]  # Pega a parte da data "YYYY-MM-DD"
+                    registros_por_funcionario[(cpf, data)].append(r)
+
+            # Processar cada funcionário por dia
+            resultado = []
+            for (cpf, data), pontos in registros_por_funcionario.items():
+                # Ordenar os registros do dia pelo timestamp
+                pontos.sort(key=lambda x: x['timestamp'])
+
+                # Definir entrada/saída alternadamente
+                for i, ponto in enumerate(pontos):
+                    tipo = 'entrada' if i % 2 == 0 else 'saida'
+                    ponto['tipo'] = tipo
+                    resultado.append(ponto)
+
+            return resultado
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erro de Importação",
+                f"Ocorreu durante a conversão dos arquivos, antes de salvar no banco: \n{str(e)}"
+            )
+
+    def _filtrar_registros_por_data(self, registros, data_inicial, data_final):
+        """
+        Filtra os registros de ponto com base no intervalo de datas selecionado.
+        """
+        # Converte strings para objetos de data
+        formato_data = "%d/%m/%Y"
+        data_inicial = datetime.strptime(data_inicial, formato_data)
+        data_final = datetime.strptime(data_final, formato_data)
+
+        registros_filtrados = [
+            p for p in registros if data_inicial <= datetime.strptime(p["data"], formato_data) <= data_final
+        ]
+
+        return registros_filtrados
+
+
+    def _processar_arquivo(self, file_path):
+        """
+        Processa o arquivo de diferentes formatos
+        """
+        try:
+            file_extension = os.path.splitext(file_path)[1].lower()
+
+            # Processamento para arquivos de texto
+            if file_extension in ['.txt', '.csv']:
+                return self._processar_arquivo_texto(file_path)
+
+            # Processamento para arquivos Excel
+            elif file_extension in ['.xls', '.xlsx']:
+                return self._processar_arquivo_excel(file_path)
+
+            else:
+                raise ValueError("Formato de arquivo não suportado")
+
+        except Exception as e:
+            print(f"Erro ao processar arquivo: {e}")
+            return []
+
+    def _processar_arquivo_texto(self, file_path):
+        """
+        Processa arquivos de texto (TXT/CSV)
+        """
+        registros = []
+        try:
+            with open(file_path, 'r', encoding='utf-8') as arquivo:
+                for linha in arquivo:
+                    linha = linha.strip()
+                    if linha:  # Ignora linhas vazias
+                        registro = self._parse_line(linha)
+                        if registro:
+                            registros.append(registro)
+            return registros
+        except UnicodeDecodeError:
+            # Tenta com outro encoding se UTF-8 falhar
+            try:
+                with open(file_path, 'r', encoding='latin-1') as arquivo:
+                    for linha in arquivo:
+                        linha = linha.strip()
+                        if linha:
+                            registro = self._parse_line(linha)
+                            if registro:
+                                registros.append(registro)
+                return registros
+            except Exception as e:
+                print(f"Erro de leitura do arquivo: {e}")
+                return []
+
+    def _parse_line(self, line):
+        """
+        Faz o parsing de uma linha de registro com o seguinte layout:
+          - posições 0 a 9: Identificador (registro)
+          - posições 10 a 33: Timestamp (24 caracteres)
+          - posições 34 a 44: Código (11 caracteres)
+          - posições 45 em diante: Valor (ex: '1AFA', 'A1F5', etc.)
+        Caso a linha não contenha todos os campos, os campos ausentes serão tratados como vazios.
+        """
+        try:
+            registro = line[:10]
+            timestamp = line[10:34]
+
+            # Converter o timestamp para um objeto datetime
+            dt = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S%z")
+            # Formatar a data como dd/mm/aaaa
+            data_formatada = dt.strftime("%d/%m/%Y")
+            # Extrair a hora no formato HH:MM:SS
+            hora_formatada = dt.strftime("%H:%M:%S")
+
+            # Se a linha tiver pelo menos 45 caracteres, extrai o código; caso contrário, pega o que houver a partir do índice 34
+            codigo = line[34:45] if 45 <= len(line) < 90 else line[34:]
+            # Se a linha tiver mais de 45 caracteres, extrai o valor (removendo espaços extras)
+            valor = line[45:].strip() if len(line) > 45 else ""
+
+            return {
+                "registro": registro,
+                "timestamp": timestamp,
+                "data": data_formatada,
+                "hora": hora_formatada,
+                "codigo": codigo.strip(),
+                "valor": valor
+            }
+        except Exception as e:
+            print(f"Erro ao fazer parsing da linha: {e}")
+            return None  # Retorna None em caso de erro
+
+    def _processar_arquivo_excel(self, file_path):
+        """
+        Processa arquivos Excel
+        """
+        try:
+            import pandas as pd
+
+            # Lê o arquivo Excel
+            df = pd.read_excel(file_path)
+
+            registros = []
+            for _, row in df.iterrows():
+                # Adapte esta parte conforme o layout específico do seu arquivo Excel
+                registro = {
+                    'data': row['Data'].strftime('%d/%m/%Y'),
+                    'hora': row['Hora'].strftime('%H:%M:%S'),
+                    'registro': str(row.get('Registro', '')),
+                    'codigo': str(row.get('Codigo', '')),
+                    'valor': str(row.get('Valor', ''))
+                }
+                registros.append(registro)
+
+            return registros
+
+        except ImportError:
+            QMessageBox.warning(
+                self,
+                "Erro",
+                "Biblioteca pandas não instalada. Instale com: pip install pandas openpyxl"
+            )
+            return []
+        except Exception as e:
+            print(f"Erro ao processar arquivo Excel: {e}")
+            return []
+
+
+    def _salvar_registros(self, registros, empresa, formato):
+        """
+        Salva os registros no banco de dados ou gera arquivo
+        """
+        try:
+            # Lógica de salvamento no banco ou geração de arquivo
+            if not registros:
+                raise ValueError("Nenhum registro para salvar")
+
+            # Exemplo de salvamento (adapte conforme sua necessidade)
+            #self._salvar_no_banco_de_dados(registros
+
+            # Ou exportar para um arquivo conforme o formato
+            if formato == 'CSV':
+                self._exportar_csv(registros, empresa)
+            elif formato == 'TXT':
+                self._exportar_txt(registros, empresa)
+
+        except Exception as e:
+            print(f"Erro ao salvar registros: {e}")
+            raise
+
+    def browse_file(self, line_edit=None):
+        """
+        Método de seleção de arquivo com diagnóstico detalhado
+        """
+        try:
+            # Imprime informações de diagnóstico
+            print("Método browse_file iniciado")
+            print(f"Parâmetro line_edit: {line_edit}")
+
+            # Tenta obter o widget correto se não for passado
+            if line_edit is None:
+                if hasattr(self, 'import_file_path'):
+                    line_edit = self.import_file_path
+                else:
+                    print("ERRO: Não foi possível encontrar o widget de linha de texto")
+                    return None
+
+            # Verifica o tipo do widget
+            print(f"Tipo do widget: {type(line_edit)}")
+
+            # Abre diálogo de seleção de arquivo
+            file_name, _ = QFileDialog.getOpenFileName(
+                self,
+                "Selecionar Arquivo",
+                "",
+                "Todos os Arquivos (*);;Arquivos de Texto (*.txt);;Arquivos CSV (*.csv);;Arquivos Excel (*.xls *.xlsx)"
+            )
+
+            # Diagnóstico do arquivo selecionado
+            print(f"Arquivo selecionado: {file_name}")
+
+            # Verifica se um arquivo foi selecionado
+            if not file_name:
+                print("Nenhum arquivo selecionado")
+                return None
+
+            # Valida existência do arquivo
+            if not os.path.exists(file_name):
+                print(f"ERRO: Arquivo não encontrado - {file_name}")
+                return None
+
+            # Tenta definir o texto no widget
+            try:
+                line_edit.setText(file_name)
+                print(f"Caminho do arquivo definido: {file_name}")
+            except Exception as set_text_error:
+                print(f"ERRO ao definir texto: {set_text_error}")
+                return None
+
+            return file_name
+
+        except Exception as e:
+            # Captura qualquer exceção inesperada
+            print(f"ERRO CRÍTICO no browse_file: {e}")
+            import traceback
+            traceback.print_exc()
+
+            # Mostra mensagem de erro
+            try:
+                QMessageBox.critical(
+                    self,
+                    "Erro Crítico",
+                    f"Ocorreu um erro ao selecionar o arquivo:\n{str(e)}"
+                )
+            except Exception as msg_error:
+                print(f"ERRO ao mostrar mensagem: {msg_error}")
+
+            return None
+
+    def _exportar_csv(self, registros, empresa):
+        """
+        Exporta registros para um arquivo CSV
+        """
+        import csv
+        from datetime import datetime
+
+        try:
+            # Gera nome do arquivo com timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"ponto_{empresa.split(' - ')[0]}_{timestamp}.csv"
+            path = os.path.join(os.path.expanduser("~"), "Downloads", filename)
+
+            # Cria o diretório se não existir
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+
+            # Escreve o arquivo CSV
+            with open(path, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = registros[0].keys()
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+                writer.writeheader()
+                for registro in registros:
+                    writer.writerow(registro)
+
+            return path
+        except Exception as e:
+            print(f"Erro ao exportar CSV: {e}")
+            raise
+
+    def _exportar_txt(self, registros, empresa):
+        """
+        Exporta registros para um arquivo TXT
+        """
+        from datetime import datetime
+
+        try:
+            # Gera nome do arquivo com timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"ponto_{empresa.split(' - ')[0]}_{timestamp}.txt"
+            path = os.path.join(os.path.expanduser("~"), "Downloads", filename)
+
+            # Cria o diretório se não existir
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+
+            # Escreve o arquivo TXT
+            with open(path, 'w', encoding='utf-8') as txtfile:
+                # Escreve cabeçalho
+                headers = registros[0].keys()
+                txtfile.write("\t".join(headers) + "\n")
+
+                # Escreve registros
+                for registro in registros:
+                    line = "\t".join(str(registro[field]) for field in headers)
+                    txtfile.write(line + "\n")
+
+            return path
+        except Exception as e:
+            print(f"Erro ao exportar TXT: {e}")
+            raise
+
+    def _exportar_excel(self, registros, empresa):
+        """
+        Exporta registros para um arquivo Excel
+        """
+        try:
+            import pandas as pd
+            from datetime import datetime
+
+            # Gera nome do arquivo com timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"ponto_{empresa.split(' - ')[0]}_{timestamp}.xlsx"
+            path = os.path.join(os.path.expanduser("~"), "Downloads", filename)
+
+            # Cria o diretório se não existir
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+
+            # Converte para DataFrame e salva
+            df = pd.DataFrame(registros)
+            df.to_excel(path, index=False)
+
+            return path
+        except ImportError:
+            raise ImportError("Biblioteca pandas não instalada. Instale com: pip install pandas openpyxl")
+        except Exception as e:
+            print(f"Erro ao exportar Excel: {e}")
+            raise
+    # ------------------------------------ Relatórios --------------------------------------------------
+    def init_reports_screen(self):
+        reports_widget = QWidget()
+        layout = QVBoxLayout(reports_widget)
+
+        # Título
+        title = QLabel("Relatórios")
+        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #343a40; margin-bottom: 20px;")
+        layout.addWidget(title)
+
+        # Tabs para diferentes relatórios
+        tabs = QTabWidget()
+
+        # Tab de Horas Trabalhadas
+        hours_tab = QWidget()
+        hours_layout = QVBoxLayout(hours_tab)
+
+        hours_filter = QGroupBox("Filtros")
+        hours_filter_layout = QFormLayout(hours_filter)
+
+        hours_company = QComboBox()
+        hours_company.addItems(
+            ["Não desenvolvido 😎"])
+        hours_filter_layout.addRow("Empresa:", hours_company)
+
+        hours_dept = QComboBox()
+        hours_dept.addItems(["Não desenvolvido 😎"])
+        hours_filter_layout.addRow("Departamento:", hours_dept)
+
+        hours_date_from = QDateEdit()
+        hours_date_from.setDate(QDate.currentDate().addDays(-30))
+        hours_date_from.setCalendarPopup(True)
+        hours_filter_layout.addRow("Data Inicial:", hours_date_from)
+
+        hours_date_to = QDateEdit()
+        hours_date_to.setDate(QDate.currentDate())
+        hours_date_to.setCalendarPopup(True)
+        hours_filter_layout.addRow("Data Final:", hours_date_to)
+
+        hours_generate = QPushButton("Gerar Relatório")
+        hours_filter_layout.addRow("", hours_generate)
+
+        hours_layout.addWidget(hours_filter)
+
+        hours_table = QTableWidget()
+        hours_table.setColumnCount(5)
+        hours_table.setHorizontalHeaderLabels(
+            ["Funcionário", "Empresa", "Total Horas", "Horas Extras", "Horas Faltantes"])
+
+        # Dados de exemplo
+        sample_hours = [
+            ("Não desenvolvido 😎", "Teste tupla 01", "160:00", "5:30", "0:00"),
+            ("Não desenvolvido 😎", "Teste tupla 02", "158:45", "0:00", "1:15"),
+        ]
+
+        hours_table.setRowCount(len(sample_hours))
+
+        for row, (employee, company, total, extra, missing) in enumerate(sample_hours):
+            hours_table.setItem(row, 0, QTableWidgetItem(employee))
+            hours_table.setItem(row, 1, QTableWidgetItem(company))
+            hours_table.setItem(row, 2, QTableWidgetItem(total))
+
+            extra_item = QTableWidgetItem(extra)
+            if extra != "0:00":
+                extra_item.setForeground(QColor("#28a745"))
+            hours_table.setItem(row, 3, extra_item)
+
+            missing_item = QTableWidgetItem(missing)
+            if missing != "0:00":
+                missing_item.setForeground(QColor("#dc3545"))
+            hours_table.setItem(row, 4, missing_item)
+
+        hours_layout.addWidget(hours_table)
+
+        export_buttons = QHBoxLayout()
+        export_csv = QPushButton("Exportar CSV")
+        export_csv.setStyleSheet("background-color: #6c757d;")
+
+        export_txt = QPushButton("Exportar TXT")
+        export_txt.setStyleSheet("background-color: #6c757d;")
+
+        export_pdf = QPushButton("Exportar PDF")
+        export_pdf.setStyleSheet("background-color: #6c757d;")
+
+        export_buttons.addWidget(export_csv)
+        export_buttons.addWidget(export_txt)
+        export_buttons.addWidget(export_pdf)
+        export_buttons.addStretch()
+
+        hours_layout.addLayout(export_buttons)
+
+        # Tab de Faltas e Atrasos
+        absences_tab = QWidget()
+        absences_layout = QVBoxLayout(absences_tab)
+
+        absences_filter = QGroupBox("Filtros")
+        absences_filter_layout = QFormLayout(absences_filter)
+
+        absences_company = QComboBox()
+        absences_company.addItems(
+            ["Não Desenvolvido 😎"])
+        absences_filter_layout.addRow("Empresa:", absences_company)
+
+        absences_type = QComboBox()
+        absences_type.addItems(["Todos os tipos", "Faltas", "Atrasos", "Saídas antecipadas"])
+        absences_filter_layout.addRow("Tipo:", absences_type)
+
+        absences_date_from = QDateEdit()
+        absences_date_from.setDate(QDate.currentDate().addDays(-30))
+        absences_date_from.setCalendarPopup(True)
+        absences_filter_layout.addRow("Data Inicial:", absences_date_from)
+
+        absences_date_to = QDateEdit()
+        absences_date_to.setDate(QDate.currentDate())
+        absences_date_to.setCalendarPopup(True)
+        absences_filter_layout.addRow("Data Final:", absences_date_to)
+
+        absences_generate = QPushButton("Gerar Relatório")
+        absences_filter_layout.addRow("", absences_generate)
+
+        absences_layout.addWidget(absences_filter)
+
+        absences_table = QTableWidget()
+        absences_table.setColumnCount(5)
+        absences_table.setHorizontalHeaderLabels(["Funcionário", "Empresa", "Data", "Tipo", "Observação"])
+
+        # Dados de exemplo
+        sample_absences = [
+            ("Não desenvolvido", "Teste 01", "15/02/2025", "Falta", "Atestado médico")
+        ]
+
+        absences_table.setRowCount(len(sample_absences))
+
+        for row, (employee, company, date, absence_type, note) in enumerate(sample_absences):
+            absences_table.setItem(row, 0, QTableWidgetItem(employee))
+            absences_table.setItem(row, 1, QTableWidgetItem(company))
+            absences_table.setItem(row, 2, QTableWidgetItem(date))
+
+            type_item = QTableWidgetItem(absence_type)
+            if absence_type == "Falta":
+                type_item.setForeground(QColor("#dc3545"))
+            elif absence_type == "Atraso":
+                type_item.setForeground(QColor("#fd7e14"))
+            else:
+                type_item.setForeground(QColor("#6c757d"))
+
+            absences_table.setItem(row, 3, type_item)
+            absences_table.setItem(row, 4, QTableWidgetItem(note))
+
+        absences_layout.addWidget(absences_table)
+
+        absences_export = QHBoxLayout()
+        absences_csv = QPushButton("Exportar CSV")
+        absences_csv.setStyleSheet("background-color: #6c757d;")
+
+        absences_txt = QPushButton("Exportar TXT")
+        absences_txt.setStyleSheet("background-color: #6c757d;")
+
+        absences_pdf = QPushButton("Exportar PDF")
+        absences_pdf.setStyleSheet("background-color: #6c757d;")
+
+        absences_export.addWidget(absences_csv)
+        absences_export.addWidget(absences_txt)
+        absences_export.addWidget(absences_pdf)
+        absences_export.addStretch()
+
+        absences_layout.addLayout(absences_export)
+
+        # Tab de Relatório de Funcionários
+        employees_tab = QWidget()
+        employees_layout = QVBoxLayout(employees_tab)
+
+        employees_filter = QGroupBox("Filtros")
+        employees_filter_layout = QFormLayout(employees_filter)
+
+        employees_report_company = QComboBox()
+        employees_report_company.addItems(
+            ["Não desenvolvido"])
+        employees_filter_layout.addRow("Empresa:", employees_report_company)
+
+        employees_report_dept = QComboBox()
+        employees_report_dept.addItems(["Não Desenvolvido"])
+        employees_filter_layout.addRow("Departamento:", employees_report_dept)
+
+        employees_report_status = QComboBox()
+        employees_report_status.addItems(["Todos", "Ativo", "Inativo", "Férias", "Afastado"])
+        employees_filter_layout.addRow("Status:", employees_report_status)
+
+        employees_report_generate = QPushButton("Gerar Relatório")
+        employees_filter_layout.addRow("", employees_report_generate)
+
+        employees_layout.addWidget(employees_filter)
+
+        employees_report_table = QTableWidget()
+        employees_report_table.setColumnCount(7)
+        employees_report_table.setHorizontalHeaderLabels(
+            ["Nome", "Empresa", "Departamento", "Cargo", "Data Admissão", "Status", "Jornada"])
+
+        # Dados de exemplo
+        sample_employees_report = [
+            ("teste 01", "teste 01", "TI", "Desenvolvedor", "15/01/2023", "Ativo", "40h/semana"),
+            ("teste 01", "teste 01", "RH", "Analista de RH", "05/03/2022", "Ativo", "40h/semana"),
+            ("teste 01", "teste 01.", "Financeiro", "Contador", "22/08/2021", "Férias", "40h/semana"),
+            ("teste 01", "teste 01", "Marketing", "Gerente de Marketing", "10/05/2020", "Ativo",
+             "40h/semana"),
+            ("teste 01", "teste 01", "Operações", "Supervisor", "03/11/2022", "Afastado",
+             "44h/semana")
+        ]
+
+        employees_report_table.setRowCount(len(sample_employees_report))
+
+        for row, (name, company, dept, position, hire_date, status, workload) in enumerate(sample_employees_report):
+            employees_report_table.setItem(row, 0, QTableWidgetItem(name))
+            employees_report_table.setItem(row, 1, QTableWidgetItem(company))
+            employees_report_table.setItem(row, 2, QTableWidgetItem(dept))
+            employees_report_table.setItem(row, 3, QTableWidgetItem(position))
+            employees_report_table.setItem(row, 4, QTableWidgetItem(hire_date))
+
+            status_item = QTableWidgetItem(status)
+            if status == "Ativo":
+                status_item.setForeground(QColor("#28a745"))
+            elif status == "Férias":
+                status_item.setForeground(QColor("#fd7e14"))
+            elif status == "Afastado":
+                status_item.setForeground(QColor("#dc3545"))
+
+            employees_report_table.setItem(row, 5, status_item)
+            employees_report_table.setItem(row, 6, QTableWidgetItem(workload))
+
+        employees_layout.addWidget(employees_report_table)
+
+        employees_report_export = QHBoxLayout()
+        employees_report_csv = QPushButton("Exportar CSV")
+        employees_report_csv.setStyleSheet("background-color: #6c757d;")
+
+        employees_report_txt = QPushButton("Exportar TXT")
+        employees_report_txt.setStyleSheet("background-color: #6c757d;")
+
+        employees_report_pdf = QPushButton("Exportar PDF")
+        employees_report_pdf.setStyleSheet("background-color: #6c757d;")
+
+        employees_report_export.addWidget(employees_report_csv)
+        employees_report_export.addWidget(employees_report_txt)
+        employees_report_export.addWidget(employees_report_pdf)
+        employees_report_export.addStretch()
+
+        employees_layout.addLayout(employees_report_export)
+
+        # Adicionar as tabs
+        tabs.addTab(hours_tab, "Horas Trabalhadas")
+        tabs.addTab(absences_tab, "Faltas e Atrasos")
+        tabs.addTab(employees_tab, "Funcionários")
+
+        layout.addWidget(tabs)
+
+        self.stack.addWidget(reports_widget)
+
+    def init_settings_screen(self):
+        settings_widget = QWidget()
+        layout = QVBoxLayout(settings_widget)
+
+        # Título
+        title = QLabel("Configurações do Sistema")
+        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #343a40; margin-bottom: 20px;")
+        layout.addWidget(title)
+
+        # Configurações de Importação/Exportação
+        import_export_group = QGroupBox("Configurações de Importação/Exportação")
+        import_export_layout = QFormLayout(import_export_group)
+
+        default_import_format = QComboBox()
+        default_import_format.addItems(["CSV", "TXT", "XLS", "XLSX"])
+        import_export_layout.addRow("Formato padrão de importação:", default_import_format)
+
+        default_export_format = QComboBox()
+        default_export_format.addItems(["CSV", "TXT", "XLSX"])
+        import_export_layout.addRow("Formato padrão de exportação:", default_export_format)
+
+        delimiter = QComboBox()
+        delimiter.addItems([",", ";", "Tab", "|"])
+        import_export_layout.addRow("Delimitador CSV:", delimiter)
+
+        encoding = QComboBox()
+        encoding.addItems(["UTF-8", "ISO-8859-1", "Windows-1252"])
+        import_export_layout.addRow("Encoding:", encoding)
+
+        layout.addWidget(import_export_group)
+
+        # Configurações de Interface
+        ui_group = QGroupBox("Configurações de Interface")
+        ui_layout = QFormLayout(ui_group)
+
+        theme = QComboBox()
+        theme.addItems(["Claro", "Escuro", "Sistema"])
+        ui_layout.addRow("Tema:", theme)
+
+        confirm_delete = QCheckBox()
+        confirm_delete.setChecked(True)
+        ui_layout.addRow("Confirmar antes de excluir:", confirm_delete)
+
+        rows_per_page = QSpinBox()
+        rows_per_page.setMinimum(10)
+        rows_per_page.setMaximum(100)
+        rows_per_page.setValue(20)
+        rows_per_page.setSingleStep(5)
+        ui_layout.addRow("Linhas por página:", rows_per_page)
+
+        layout.addWidget(ui_group)
+
+        # Configurações de Ponto
+        timesheet_group = QGroupBox("Configurações de Ponto")
+        timesheet_layout = QFormLayout(timesheet_group)
+
+        workday_hours = QSpinBox()
+        workday_hours.setMinimum(4)
+        workday_hours.setMaximum(12)
+        workday_hours.setValue(8)
+        timesheet_layout.addRow("Horas de trabalho diárias padrão:", workday_hours)
+
+        tolerance = QSpinBox()
+        tolerance.setMinimum(0)
+        tolerance.setMaximum(60)
+        tolerance.setValue(10)
+        tolerance.setSuffix(" min")
+        timesheet_layout.addRow("Tolerância para atrasos:", tolerance)
+
+        auto_import = QCheckBox()
+        auto_import.setChecked(False)
+        timesheet_layout.addRow("Importação automática de ponto:", auto_import)
+
+        layout.addWidget(timesheet_group)
+
+        # Botões
+        buttons_layout = QHBoxLayout()
+        save_btn = QPushButton("Salvar Configurações")
+        save_btn.clicked.connect(self.save_settings)
+
+        reset_btn = QPushButton("Restaurar Padrões")
+        reset_btn.setStyleSheet("background-color: #6c757d;")
+
+        buttons_layout.addWidget(save_btn)
+        buttons_layout.addWidget(reset_btn)
+        buttons_layout.addStretch()
+
+        layout.addLayout(buttons_layout)
+        layout.addStretch()
+
+        self.stack.addWidget(settings_widget)
+
+        # Métodos de navegação
+
+    def show_home(self):
+        self.stack.setCurrentIndex(0)
+
+    def show_companies(self):
+        self.stack.setCurrentIndex(1)
+
+    def show_employees(self):
+        self.stack.setCurrentIndex(2)
+
+    def show_timesheet(self):
+        self.stack.setCurrentIndex(3)
+
+    def show_reports(self):
+        self.stack.setCurrentIndex(4)
+
+    def show_settings(self):
+        self.stack.setCurrentIndex(5)
+
+        # Métodos para formulários e ações
+
 
         # Métodos para importação e exportação
 
@@ -2063,6 +2481,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                                                    "*.xlsx)")
         if file_name:
             QMessageBox.information(self, "Exportação de Empresas", f"Empresas exportadas com sucesso para {file_name}")
+
 
     def import_timesheet(self):
         QMessageBox.information(self, "Importação de Ponto", "Iniciando importação de dados de ponto...")
