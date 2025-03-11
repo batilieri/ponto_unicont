@@ -1235,7 +1235,7 @@ class MainWindow(QMainWindow, BancoSQLite):
 
             # Cria a tabela "cadastro_funcionario", se necessário
             self.criar_tabela("cadastro_funcionario", estrutura_funcionario)
-            self.cadastro_ponto() # Cria a tabela ponto que vai usar FK da cadastro_funcionario
+            self.cadastro_ponto()  # Cria a tabela ponto que vai usar FK da cadastro_funcionario
 
             # Cria o dicionário com os dados a serem inseridos
             dados = {
@@ -1550,7 +1550,7 @@ class MainWindow(QMainWindow, BancoSQLite):
             import_form.addRow("Arquivo:", self.import_file_layout)
 
             format_combo = QComboBox()
-            format_combo.addItems(["TXT","CSV", "XLS", "XLSX"])
+            format_combo.addItems(["TXT", "CSV", "XLS", "XLSX"])
             import_form.addRow("Formato:", format_combo)
 
             import_btn = QPushButton("Importar Dados")
@@ -1612,56 +1612,74 @@ class MainWindow(QMainWindow, BancoSQLite):
             export_layout.addWidget(export_group)
             export_layout.addStretch()
 
-            # Tab de Visualização
+            # Tab de Visualização ---------------------------------------------
+
+
             view_tab = QWidget()
             view_layout = QVBoxLayout(view_tab)
 
+            # Grupo de filtros
             view_filters = QGroupBox("Filtros")
             view_filters_layout = QHBoxLayout(view_filters)
 
+            # Adicionando os widgets ao layout
             view_filters_layout.addWidget(QLabel("Funcionário:"))
             employee_filter = QComboBox()
-
-            employee_filter.addItems(
-                ["Não desenvolvido 😎"])
+            employee_filter.addItems(["Não desenvolvido 😎"])
             view_filters_layout.addWidget(employee_filter)
 
             view_filters_layout.addWidget(QLabel("Data:"))
-            view_date = QDateEdit()
+            self.view_date = QDateEdit()
+            view_date = self.view_date
             view_date.setDate(QDate.currentDate())
             view_date.setCalendarPopup(True)
             view_filters_layout.addWidget(view_date)
 
+            # Criando o botão novamente e adicionando ao layout
             view_filter_btn = QPushButton("Filtrar")
             view_filters_layout.addWidget(view_filter_btn)
+            # Conectar o botão de filtro à função de atualização
+            view_filter_btn.clicked.connect(lambda: self.update_table_ponto(view_table, view_date))
 
+            # Adicionando o grupo de filtros ao layout principal
             view_layout.addWidget(view_filters)
 
             # Tabela de ponto
-            view_table = QTableWidget()
-            view_table.setColumnCount(6)
+            self.view_table = QTableWidget()
+            view_table = self.view_table
+            view_table.setColumnCount(7)
             view_table.setHorizontalHeaderLabels(
-                ["Funcionário", "Data", "Entrada", "Saída Almoço", "Retorno Almoço", "Saída"])
-
+                ["CPF", "Funcionário", "Data", "Entrada", "Saída Almoço", "Retorno Almoço", "Saída"])
+            view_Date_filter = view_date.date().toString("MM/yyyy")
             # Dados de exemplo
-            sample_timesheet = self.visualiza_ponto("02/2025")
+            sample_timesheet = self.visualiza_ponto(view_Date_filter)
 
             view_table.setRowCount(len(sample_timesheet))
+            # Definindo largura fixa para cada coluna
+            view_table.setColumnWidth(0, 150)  # Data
+            view_table.setColumnWidth(1, 350)  # Funcionário
+            view_table.setColumnWidth(2, 100)  # Data
+            view_table.setColumnWidth(3, 120)  # Entrada
+            view_table.setColumnWidth(4, 120)  # Saída Almoço
+            view_table.setColumnWidth(5, 120)  # Retorno Almoço
+            view_table.setColumnWidth(6, 120)  # Saída
 
-            for row, (employee, date, entry, lunch_out, lunch_in, exit_time) in enumerate(sample_timesheet):
-                view_table.setItem(row, 0, QTableWidgetItem(employee))
-                view_table.setItem(row, 1, QTableWidgetItem(date))
-                view_table.setItem(row, 2, QTableWidgetItem(entry))
-                view_table.setItem(row, 3, QTableWidgetItem(lunch_out))
-                view_table.setItem(row, 4, QTableWidgetItem(lunch_in))
-                view_table.setItem(row, 5, QTableWidgetItem(exit_time))
+            for row, (cpf, employee, date, entry, lunch_out, lunch_in, exit_time) in enumerate(sample_timesheet):
+                view_table.setItem(row, 0, QTableWidgetItem(cpf))
+                view_table.setItem(row, 1, QTableWidgetItem(employee))
+                view_table.setItem(row, 2, QTableWidgetItem(date))
+                view_table.setItem(row, 3, QTableWidgetItem(entry))
+                view_table.setItem(row, 4, QTableWidgetItem(lunch_out))
+                view_table.setItem(row, 5, QTableWidgetItem(lunch_in))
+                view_table.setItem(row, 6, QTableWidgetItem(exit_time))
 
             view_layout.addWidget(view_table)
+            view_table.itemChanged.connect(self.auto_save)
 
             # Adicionar as tabs
             tabs.addTab(import_tab, "Importação")
-            tabs.addTab(export_tab, "Exportação")
             tabs.addTab(view_tab, "Visualização")
+            tabs.addTab(export_tab, "Exportação")
 
             layout.addWidget(tabs)
 
@@ -1670,8 +1688,95 @@ class MainWindow(QMainWindow, BancoSQLite):
             self.date_from = date_from
             self.date_to = date_to
             self.format_combo = format_combo
-        except Exception  as e:
+        except Exception as e:
             print(e)
+
+    def auto_save(self, item):
+        """
+        Função chamada quando um item da tabela é alterado.
+        """
+
+        try:
+            # Temporariamente desativa o sinal para evitar loop infinito
+            self.view_table.blockSignals(True)
+
+            row = item.row()
+            col = item.column()
+
+            # Obter dados da linha
+            cpf = self.view_table.item(row, 0).text()
+            funcionario = self.view_table.item(row, 1).text()
+            data = self.view_table.item(row, 2).text()
+
+            # Mapear coluna para nome do campo
+            campos = {
+                3: "entrada",
+                4: "saida_almoco",
+                5: "retorno_almoco",
+                6: "saida"
+            }
+
+            if col in campos:
+                campo = campos[col]
+                valor_novo = item.text()
+
+                # Verificar formato do horário (deve ser HH:MM:SS)
+                import re
+                if valor_novo != "00:00:00" and not re.match(r'^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$', valor_novo):
+                    print("Formato inválido! Use HH:MM:SS")
+                    # Reativar sinais antes de sair
+                    self.view_table.blockSignals(False)
+                    return
+
+                # Salvar alteração no banco de dados
+                sucesso = self.salvar_alteracao_ponto(cpf, data, campo, valor_novo)
+
+                if not sucesso:
+                    print("Erro ao salvar alteração!")
+                    self.update_table_ponto(self.view_table, self.view_date)  # Reverter alteração
+
+        except Exception as e:
+            print(f"Erro ao processar alteração na tabela: {str(e)}")
+
+        finally:
+            # Reativar o sinal para evitar bloqueios permanentes
+            self.view_table.blockSignals(False)
+
+    def update_table_ponto(self, table, date_widget):
+        """
+        Atualiza a tabela de ponto com os dados filtrados pela data.
+        """
+        try:
+            # Obter mês/ano selecionado
+            date_filter = date_widget.date().toString("MM/yyyy")
+
+            # Buscar dados de ponto
+            registros = self.visualiza_ponto(date_filter)
+
+            # Limpar tabela atual
+            table.setRowCount(0)
+
+            # Preencher tabela com novos dados
+            for row, registro in enumerate(registros):
+                cpf, nome, data, entrada, saida_almoco, retorno_almoco, saida = registro
+
+                # Adicionar nova linha
+                table.insertRow(row)
+
+                # Preencher células
+                table.setItem(row, 0, QTableWidgetItem(cpf))
+                table.setItem(row, 1, QTableWidgetItem(nome))
+                table.setItem(row, 2, QTableWidgetItem(data))
+                table.setItem(row, 3, QTableWidgetItem(entrada))
+                table.setItem(row, 4, QTableWidgetItem(saida_almoco))
+                table.setItem(row, 5, QTableWidgetItem(retorno_almoco))
+                table.setItem(row, 6, QTableWidgetItem(saida))
+
+            # Mostrar mensagem com quantidade de registros
+            print(f"Tabela atualizada com {len(registros)} registros para {date_filter}")
+
+        except Exception as e:
+            logger.error(f"Erro ao atualizar tabela: {str(e)}")
 
     def import_dados(self):
         """
@@ -1704,7 +1809,6 @@ class MainWindow(QMainWindow, BancoSQLite):
 
             # Lê os registros do arquivo
             registros = self.processar_pontos(self._processar_arquivo(file_path))
-
 
             # Obtém dados do formulário
             empresa = self.company_combo.currentText()
@@ -1786,7 +1890,6 @@ class MainWindow(QMainWindow, BancoSQLite):
         ]
 
         return registros_filtrados
-
 
     def _processar_arquivo(self, file_path):
         """
@@ -1911,7 +2014,6 @@ class MainWindow(QMainWindow, BancoSQLite):
             print(f"Erro ao processar arquivo Excel: {e}")
             return []
 
-
     def _salvar_registros(self, registros, empresa, formato):
         """
         Salva os registros no banco de dados ou gera arquivo
@@ -1922,7 +2024,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                 raise ValueError("Nenhum registro para salvar")
 
             # Exemplo de salvamento (adapte conforme sua necessidade)
-            #self._salvar_no_banco_de_dados(registros
+            # self._salvar_no_banco_de_dados(registros
 
             # Ou exportar para um arquivo conforme o formato
             if formato == 'CSV':
@@ -2090,6 +2192,7 @@ class MainWindow(QMainWindow, BancoSQLite):
         except Exception as e:
             print(f"Erro ao exportar Excel: {e}")
             raise
+
     # ------------------------------------ Relatórios --------------------------------------------------
     def init_reports_screen(self):
         reports_widget = QWidget()
@@ -2461,7 +2564,6 @@ class MainWindow(QMainWindow, BancoSQLite):
 
         # Métodos para formulários e ações
 
-
         # Métodos para importação e exportação
 
     def import_employees(self):
@@ -2481,7 +2583,6 @@ class MainWindow(QMainWindow, BancoSQLite):
                                                    "*.xlsx)")
         if file_name:
             QMessageBox.information(self, "Exportação de Empresas", f"Empresas exportadas com sucesso para {file_name}")
-
 
     def import_timesheet(self):
         QMessageBox.information(self, "Importação de Ponto", "Iniciando importação de dados de ponto...")

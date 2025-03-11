@@ -5,7 +5,11 @@ from typing import Dict, List, Any, Optional, Union
 from pathlib import Path
 import colorlog
 import logging
+import datetime
 import contextlib
+from datetime import datetime
+from typing import Dict, Any
+from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem, QMessageBox
 
 
 def setup_logger() -> logging.Logger:
@@ -51,6 +55,8 @@ class BancoSQLite:
             self.conn = sqlite3.connect(str(self.db_path))
             self.cursor = self.conn.cursor()
             logger.info(f"Banco de dados inicializado em: {self.db_path}")
+            self.criar_tabelas_log_ponto()
+            self.cadastro_ponto_alteracao()
 
         except Exception as e:
             logger.error(f"Erro na inicialização do banco: {str(e)}")
@@ -178,7 +184,7 @@ class BancoSQLite:
             bool: True se o registro foi atualizado com sucesso, False caso contrário
         """
         try:
-            dados['ultima_modificacao'] = datetime.now().isoformat()
+            dados['ultima_modificacao'] = datetime.now().isoformat()  # Correção aqui
             set_clause = ', '.join([f"{campo} = ?" for campo in dados.keys()])
             query = f"UPDATE {nome_tabela} SET {set_clause} WHERE id = ?"
 
@@ -307,6 +313,28 @@ class BancoSQLite:
             logger.error(f"Erro ao criar a tabela ponto. {e}")
             return False
 
+    def cadastro_ponto_alteracao(self):
+        try:
+            with self.transaction():
+                query = """
+                            CREATE TABLE IF NOT EXISTS ponto_alteracoes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ponto_id INTEGER NOT NULL,
+                campo_alterado TEXT NOT NULL,
+                valor_antigo TEXT NOT NULL,
+                valor_novo TEXT NOT NULL,
+                data_alteracao TEXT NOT NULL,
+                FOREIGN KEY (ponto_id) REFERENCES ponto(id)
+            );
+
+                    """
+                self.cursor.execute(query)
+            logger.info(f"Tabela ponto_alteracoes criada com sucesso!")
+            return True
+        except Exception as e:
+            logger.error(f"Erro ao criar a tabela ponto. {e}")
+            return False
+
     def inserir_atualizar_ponto(self, cpf, timestamp, tipo, codigo_empresa):
         try:
             with self.transaction():
@@ -407,156 +435,228 @@ class BancoSQLite:
 
     def visualiza_ponto(self, mes_ano):
         """
-        Método para visualizar os registros de ponto de funcionários em um mês e ano específicos.
+        Visualiza os registros de ponto de funcionários para um mês/ano específico.
+        Considera:
+          - Entrada da manhã: clique mais próximo das 08:00 (tipo 'entrada').
+          - Saída da manhã: clique mais próximo das 12:00 (tipo 'saida'); se não houver, fica "00:00:00".
+          - Entrada da tarde: clique mais próximo das 13:00 (tipo 'entrada').
+          - Saída da tarde: clique mais próximo das 18:00 (tipo 'saida'); se não houver, fica "00:00:00".
         Formato esperado para mes_ano: 'MM/YYYY' (ex: '02/2025')
         """
         try:
-            # Extrair mês e ano da string no formato MM/YYYY
+            import datetime
+
+            # Extrair mês e ano e formatar o padrão da data
             mes, ano = mes_ano.split('/')
-
-            # Formatar mês com dois dígitos
             mes_formatado = mes.zfill(2)
-
-            # Padrão para busca LIKE
             padrao = f'{ano}-{mes_formatado}-%'
 
-            # Buscar registros do funcionário para o mês e ano especificados
+            # Buscar registros brutos
             query = """
                 SELECT 
-                    f.nome, 
-                    strftime('%d/%m/%Y', substr(p.timestamp, 1, 10)) AS data, 
-                    MIN(CASE WHEN p.tipo = 'entrada' THEN substr(p.timestamp, 12, 8) END) AS entrada_manha,
-                    MAX(CASE WHEN p.tipo = 'saida' AND substr(p.timestamp, 12, 8) < '12:30' THEN substr(p.timestamp, 12, 8) END) AS saida_manha,
-                    MIN(CASE WHEN p.tipo = 'entrada' AND substr(p.timestamp, 12, 8) > '12:30' THEN substr(p.timestamp, 12, 8) END) AS entrada_tarde,
-                    MAX(CASE WHEN p.tipo = 'saida' AND substr(p.timestamp, 12, 8) > '12:30' THEN substr(p.timestamp, 12, 8) END) AS saida_tarde
+                    p.id,
+                    f.cpf,
+                    f.nome,
+                    substr(p.timestamp, 1, 10) as data_registro,
+                    substr(p.timestamp, 12, 8) as horario,
+                    p.tipo
                 FROM ponto p
                 JOIN cadastro_funcionario f ON p.cpf = f.CPF
                 WHERE p.timestamp LIKE ?
-                GROUP BY f.nome, DATE(substr(p.timestamp, 1, 10))
-                ORDER BY DATE(substr(p.timestamp, 1, 10)), f.nome;
+                ORDER BY f.nome, p.timestamp
             """
-
             self.cursor.execute(query, (padrao,))
-            registros = self.cursor.fetchall()
+            registros_brutos = self.cursor.fetchall()
 
-            # Caso não haja registros, retorna lista vazia
-            if not registros:
+            if not registros_brutos:
                 logger.warning(f"Nenhum registro de ponto encontrado para {mes_ano}.")
                 return []
 
-            print(f"Encontrados {len(registros)} registros de ponto para {mes_ano}.")
-            return registros
+            # Agrupar registros por (CPF, nome, data)
+            registros_por_pessoa_dia = {}
+            for ponto_id, CPF, nome, data_registro, horario, tipo in registros_brutos:
+                chave = (CPF, nome, data_registro)
+                if chave not in registros_por_pessoa_dia:
+                    registros_por_pessoa_dia[chave] = []
+                registros_por_pessoa_dia[chave].append((horario, tipo, ponto_id))
+
+            # Função auxiliar para converter string para objeto time
+            def str_to_time(t_str):
+                return datetime.datetime.strptime(t_str, "%H:%M:%S").time()
+
+            # Função que seleciona o registro do tipo esperado cuja distância para o horário alvo seja mínima
+            def seleciona_registro(registros, target_time, expected_type):
+                candidatos = [r for r in registros if r[1] == expected_type]
+                if not candidatos:
+                    return "00:00:00"
+                return min(
+                    candidatos,
+                    key=lambda r: abs(datetime.datetime.combine(datetime.date.today(), str_to_time(r[0])) -
+                                      datetime.datetime.combine(datetime.date.today(), target_time))
+                )[0]
+
+            resultado = []
+            for (CPF, nome, data_registro), registros in registros_por_pessoa_dia.items():
+                # Separar registros em manhã e tarde com base no horário
+                registros_manha = [r for r in registros if r[0] < '13:00:00']
+                registros_tarde = [r for r in registros if r[0] >= '13:00:00']
+
+                # Seleciona os cliques mais próximos dos horários de referência
+                entrada_manha = seleciona_registro(registros_manha, datetime.time(8, 0, 0), 'entrada')
+                saida_manha = seleciona_registro(registros_manha, datetime.time(12, 0, 0), 'saida')
+                entrada_tarde = seleciona_registro(registros_tarde, datetime.time(13, 0, 0), 'entrada')
+                saida_tarde = seleciona_registro(registros_tarde, datetime.time(18, 0, 0), 'saida')
+
+                # Converter a data para o formato DD/MM/YYYY
+                if '-' in data_registro:
+                    ano_db, mes_db, dia_db = data_registro.split('-')
+                    data_formatada = f"{dia_db}/{mes_db}/{ano_db}"
+                else:
+                    data_formatada = data_registro  # Caso a data já esteja formatada
+
+                resultado.append((CPF, nome, data_formatada, entrada_manha, saida_manha, entrada_tarde, saida_tarde))
+
+            # Ordenar o resultado por data e nome corretamente
+            resultado.sort(key=lambda x: (
+                datetime.datetime.strptime(x[2], '%d/%m/%Y'),  # Ordenação pela data correta
+                x[1]  # Ordenação pelo nome
+            ))
+
+            print(f"Encontrados {len(resultado)} registros de ponto para {mes_ano}.")
+            return resultado
 
         except Exception as e:
-            logger.error(f"Erro ao visualizar pontos. {e}")
-            return None
+            logger.error(f"Erro ao visualizar ponto: {str(e)}")
+            return []
 
-    def verificar_registros(self):
-        query = "SELECT COUNT(*) FROM ponto"
-        self.cursor.execute(query)
-        total = self.cursor.fetchone()[0]
-        print(f"Total de registros na tabela ponto: {total}")
-        return total
 
-    def verificar_formato_timestamp(self):
-        query = "SELECT timestamp FROM ponto LIMIT 10"
-        self.cursor.execute(query)
-        resultados = self.cursor.fetchall()
-        for resultado in resultados:
-            print(resultado[0])
-        return resultados
 
-    def depurar_registros_ponto(self, mes, ano):
+    def salvar_alteracao_ponto(self, cpf, data, campo, valor_novo):
         """
-        Função para depurar os registros de ponto e identificar problemas
+        Salva a alteração registrando em uma tabela de log sem alterar o timestamp original.
         """
         try:
-            # Usar uma consulta extremamente simples para verificar se há dados para este mês/ano
-            query_simples = """
-                SELECT COUNT(*) 
-                FROM ponto 
-                WHERE timestamp LIKE ?
-            """
-
-            # Adicionar caracteres curinga antes e depois para capturar qualquer formato
-            padrao = f'%{ano}%{mes.zfill(2)}%'
-
-            self.cursor.execute(query_simples, (padrao,))
-            total = self.cursor.fetchone()[0]
-            print(f"Total de registros encontrados para '%{ano}%{mes.zfill(2)}%': {total}")
-
-            # Se temos registros, vamos ver alguns exemplos
-            if total > 0:
-                query_exemplos = """
-                    SELECT timestamp, tipo, cpf 
-                    FROM ponto 
-                    WHERE timestamp LIKE ? 
-                    LIMIT 5
-                """
-                self.cursor.execute(query_exemplos, (padrao,))
-                exemplos = self.cursor.fetchall()
-                print("Exemplos de registros encontrados:")
-                for ex in exemplos:
-                    print(ex)
-
-            # Verificar uso correto dos tipos de entrada/saída
-            query_tipos = """
-                SELECT tipo, COUNT(*) 
-                FROM ponto 
-                GROUP BY tipo
-            """
-            self.cursor.execute(query_tipos)
-            tipos = self.cursor.fetchall()
-            print("Tipos de registro e contagens:")
-            for t in tipos:
-                print(t)
-
-            return total
-
-        except Exception as e:
-            print(f"Erro na depuração: {e}")
-            return None
-
-    def buscar_ponto_sem_join(self, mes_ano):
-        """
-        Busca apenas na tabela ponto, sem JOIN
-        """
-        try:
-            mes, ano = mes_ano.split('/')
-            mes_formatado = mes.zfill(2)
-
-            # Padrão para busca
-            padrao = f'{ano}-{mes_formatado}'
-
-            query = """
-                SELECT id, cpf, timestamp, tipo
-                FROM ponto
-                WHERE timestamp LIKE ?
-                LIMIT 20
-            """
-
-            self.cursor.execute(query, (padrao + '%',))
-            registros = self.cursor.fetchall()
-
-            if not registros:
-                print(f"Nenhum registro encontrado na tabela ponto para {mes_ano}.")
+            # Converter data para o formato SQL, se necessário
+            if '/' in data:
+                dia, mes, ano = data.split('/')
+                data_sql = f"{ano}-{mes}-{dia}"
             else:
-                print(f"Encontrados {len(registros)} registros na tabela ponto.")
-                for r in registros:
-                    print(r)
+                data_sql = data
 
-            return registros
+            # Consultar o registro atual na tabela ponto
+            query_atual = """
+              SELECT id, timestamp FROM ponto
+              WHERE cpf = ? AND date(substr(timestamp, 1, 10)) = ? AND tipo = ?
+              """
+
+            tipo = 'entrada' if campo in ['entrada', 'retorno_almoco'] else 'saida'
+            self.cursor.execute(query_atual, (cpf, data_sql, tipo))
+            resultado = self.cursor.fetchone()
+
+            if not resultado:
+                logger.warning(f"Registro não encontrado para CPF {cpf} na data {data}")
+                return False
+
+            ponto_id, timestamp_atual = resultado
+
+            # Inserir a alteração na tabela de log
+            query_log = """
+              INSERT INTO ponto_alteracoes (ponto_id, campo_alterado, valor_antigo, valor_novo, data_alteracao)
+              VALUES (?, ?, ?, ?, datetime('now'))
+              """
+            self.cursor.execute(query_log, (ponto_id, campo, timestamp_atual, valor_novo))
+            self.conn.commit()
+
+            logger.info(f"Alteração registrada com sucesso para CPF {cpf}, campo {campo}.")
+            return True
 
         except Exception as e:
-            print(f"Erro na consulta sem JOIN: {e}")
-            return None
+            logger.error(f"Erro ao salvar alteração de ponto: {str(e)}")
+            self.conn.rollback()
+            return False
 
-dados = BancoSQLite()
+    def criar_tabelas_log_ponto(self):
 
-print(dados.depurar_registros_ponto("02", "2025"))
-# print(dados.visualiza_ponto("02/2025"))
+        # Criar tabela de log de alterações
+        self.cursor.execute('''
+        CREATE TABLE IF NOT EXISTS log_alteracoes_ponto (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data_alteracao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            cpf TEXT NOT NULL,
+            funcionario TEXT NOT NULL,
+            data TEXT NOT NULL,
+            campo_alterado TEXT NOT NULL,
+            valor_antigo TEXT,
+            valor_novo TEXT,
+            usuario TEXT
+        )
+        ''')
+        self.conn.commit()
+
+    def registrar_alteracao_ponto(self, cpf, funcionario, data, campo, valor_antigo, valor_novo, usuario="Sistema"):
+        """
+        Registra uma alteração feita na tabela de ponto.
+
+        Args:
+            cpf (str): CPF do funcionário
+            funcionario (str): Nome do funcionário
+            data (str): Data do registro (formato DD/MM/YYYY)
+            campo (str): Nome do campo alterado
+            valor_antigo (str): Valor antes da alteração
+            valor_novo (str): Valor após a alteração
+            usuario (str, opcional): Usuário que fez a alteração
+        """
+        try:
+            query = '''
+            INSERT INTO log_alteracoes_ponto 
+            (cpf, funcionario, data, campo_alterado, valor_antigo, valor_novo, usuario)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            '''
+            self.cursor.execute(query, (cpf, funcionario, data, campo, valor_antigo, valor_novo, usuario))
+            self.conn.commit()
+            logger.info(f"Alteração registrada: {funcionario}, {data}, {campo}: {valor_antigo} -> {valor_novo}")
+            return True
+        except Exception as e:
+            logger.error(f"Erro ao registrar alteração: {str(e)}")
+            return False
 
 
-info = dados.buscar_ponto_sem_join("02/2025")
-for i in info:
-    print(i)
+
+    def visualizar_historico_alteracoes(self, cpf=None, data_inicio=None, data_fim=None):
+        """
+        Retorna o histórico de alterações de ponto.
+
+        Args:
+            cpf (str, opcional): Filtrar por CPF
+            data_inicio (str, opcional): Data inicial (formato YYYY-MM-DD)
+            data_fim (str, opcional): Data final (formato YYYY-MM-DD)
+
+        Returns:
+            list: Lista de alterações encontradas
+        """
+        try:
+            query = "SELECT * FROM log_alteracoes_ponto WHERE 1=1"
+            params = []
+
+            if cpf:
+                query += " AND cpf = ?"
+                params.append(cpf)
+
+            if data_inicio:
+                query += " AND data_alteracao >= ?"
+                params.append(f"{data_inicio} 00:00:00")
+
+            if data_fim:
+                query += " AND data_alteracao <= ?"
+                params.append(f"{data_fim} 23:59:59")
+
+            query += " ORDER BY data_alteracao DESC"
+
+            self.cursor.execute(query, params)
+            resultados = self.cursor.fetchall()
+
+            return resultados
+
+        except Exception as e:
+            logger.error(f"Erro ao buscar histórico de alterações: {str(e)}")
+            return []
