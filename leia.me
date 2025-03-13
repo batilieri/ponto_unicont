@@ -1,19 +1,22 @@
-# Leia-me - Ponto Uniconte
+# Leia-me - RH Ponto Uniconte
 
 ## Sobre o Projeto
-O **Ponto Uniconte** é um sistema de gerenciamento de ponto eletrônico e controle de recursos humanos, desenvolvido com **Python** e **SQLite**. O sistema oferece funcionalidades para o cadastro de empresas e funcionários, importação de arquivos de ponto, geração de relatórios e integração com o layout K200.
+O **RH Ponto Uniconte** é um sistema avançado de gestão de ponto eletrônico e controle de recursos humanos, desenvolvido para empresas que precisam monitorar e administrar horários de funcionários de maneira eficiente e organizada. O sistema é intuitivo, moderno e seguro, oferecendo funcionalidades completas para o gerenciamento do setor de RH.
 
 ## Funcionalidades Principais
-- **Cadastro de Empresas e Funcionários**
-- **Importação e processamento de arquivos CSV/XLS**
-- **Gerenciamento de Inventário e Estoque**
-- **Backup e Restauração do Banco de Dados**
-- **Geração de Relatórios em Formato K200**
+- **Registro de Ponto Eletrônico**: Captura automática de horários de entrada, saída e pausas.
+- **Cadastro de Funcionários**: Armazena dados completos dos colaboradores, incluindo cargo, horário de trabalho e histórico de pontos.
+- **Relatórios Detalhados**: Geração de relatórios diários, semanais e mensais sobre a jornada de trabalho.
+- **Cálculo de Horas Extras e Atrasos**: Monitoramento preciso do banco de horas.
+- **Exportação de Dados**: Compatibilidade com formatos CSV, Excel e integração com sistemas contábeis.
+- **Controle de Feriados e Escalas**: Permite configurar escalas de trabalho personalizadas para cada setor da empresa.
+- **Gestão de Justificativas**: Funcionalidade para justificar faltas e atrasos diretamente no sistema.
 
 ## Tecnologias Utilizadas
 - **Linguagem:** Python 3.x
 - **Banco de Dados:** SQLite
-- **Bibliotecas:** PyQt6, Pandas, Tkinter, CustomTkinter, Logging
+- **Interface Gráfica:** PyQt6 e CustomTkinter
+- **Bibliotecas:** Pandas, Tkinter, Logging
 
 ## Estrutura do Projeto
 ```
@@ -24,10 +27,10 @@ O **Ponto Uniconte** é um sistema de gerenciamento de ponto eletrônico e contr
 │
 ├── app/
 │   ├── interface.py  # Interface gráfica principal (PyQt6)
-│   ├── cadastro_empresa.py  # Tela de cadastro de empresas
 │   ├── cadastro_funcionario.py  # Tela de cadastro de funcionários
 │   ├── importacao_arquivos.py  # Importação e processamento de arquivos
-│
+│   ├── layout_saidas_novo_visual.py  # Relatórios e exportação de dados
+│   ├── rh_ponto.py  # Módulo principal do controle de ponto
 │
 ├── assets/  # Ícones, imagens e recursos visuais
 ├── README.md  # Documentação do projeto
@@ -35,12 +38,11 @@ O **Ponto Uniconte** é um sistema de gerenciamento de ponto eletrônico e contr
 └── main.py  # Arquivo principal para execução do sistema
 ```
 
-
 ## Como Instalar e Executar
 ### 1. Clonar o Repositório
 ```
-git clone https://github.com/seu-repositorio/ponto_uniconte.git
-cd ponto_uniconte
+git clone https://github.com/seu-repositorio/rh_ponto_uniconte.git
+cd rh_ponto_uniconte
 ```
 
 ### 2. Criar um Ambiente Virtual e Instalar Dependências
