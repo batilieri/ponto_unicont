@@ -1,0 +1,71 @@
+# Leia-me - Ponto Uniconte
+
+## Sobre o Projeto
+O **Ponto Uniconte** é um sistema de gerenciamento de ponto eletrônico e controle de recursos humanos, desenvolvido com **Python** e **SQLite**. O sistema oferece funcionalidades para o cadastro de empresas e funcionários, importação de arquivos de ponto, geração de relatórios e integração com o layout K200.
+
+## Funcionalidades Principais
+- **Cadastro de Empresas e Funcionários**
+- **Importação e processamento de arquivos CSV/XLS**
+- **Gerenciamento de Inventário e Estoque**
+- **Backup e Restauração do Banco de Dados**
+- **Geração de Relatórios em Formato K200**
+
+## Tecnologias Utilizadas
+- **Linguagem:** Python 3.x
+- **Banco de Dados:** SQLite
+- **Bibliotecas:** PyQt6, Pandas, Tkinter, CustomTkinter, Logging
+
+## Estrutura do Projeto
+```
+├── banco/
+│   ├── bancoSQlite.py  # Gerenciamento do banco de dados SQLite
+│   ├── banco_script.py  # Criação e manipulação das tabelas do banco
+│   ├── bkp_banco.py  # Backup e restauração do banco de dados
+│
+├── app/
+│   ├── interface.py  # Interface gráfica principal (PyQt6)
+│   ├── cadastro_empresa.py  # Tela de cadastro de empresas
+│   ├── cadastro_funcionario.py  # Tela de cadastro de funcionários
+│   ├── importacao_arquivos.py  # Importação e processamento de arquivos
+│
+│
+├── assets/  # Ícones, imagens e recursos visuais
+├── README.md  # Documentação do projeto
+├── ponto_uniconte.db  # Banco de dados SQLite
+└── main.py  # Arquivo principal para execução do sistema
+```
+
+
+## Como Instalar e Executar
+### 1. Clonar o Repositório
+```
+git clone https://github.com/seu-repositorio/ponto_uniconte.git
+cd ponto_uniconte
+```
+
+### 2. Criar um Ambiente Virtual e Instalar Dependências
+```
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate  # Windows
+pip install -r requirements.txt
+```
+
+### 3. Executar o Sistema
+```
+python main.py
+```
+
+## Backup e Restauração do Banco de Dados
+- **Backup:** O banco de dados pode ser salvo através do módulo `bkp_banco.py`.
+- **Restauração:** Caso seja necessário recuperar dados, o sistema permite restaurar um backup existente.
+
+## Contribuições
+Caso queira contribuir, abra um Pull Request ou entre em contato com o autor do projeto.
+
+## Autor
+**Eizeu Batiliere** - Desenvolvedor responsável pelo projeto.
+
+## Licença
+Este projeto está sob a licença MIT. Sinta-se livre para modificar e compartilhar.
+
