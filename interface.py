@@ -5,15 +5,136 @@ from collections import defaultdict
 from datetime import datetime
 
 from PyQt6.QtCore import Qt, QDate, QSize
-from PyQt6.QtGui import QColor, QAction
+from PyQt6.QtGui import QColor, QAction, QShortcut, QKeySequence
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QLineEdit, QFormLayout,
                              QDateEdit, QComboBox, QTableWidget, QTableWidgetItem, QFileDialog,
                              QGroupBox, QStackedWidget,
-                             QCheckBox, QSpinBox, QMessageBox, QRadioButton, QToolBar, QGridLayout, QDialog)
+                             QCheckBox, QSpinBox, QMessageBox, QRadioButton, QToolBar, QGridLayout, QDialog,
+                             QInputDialog)
 from banco.bancoSQlite import BancoSQLite, logger
+
+from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem, QMessageBox
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QColor
 import re
-import datetime
+
+
+class TimesheetTable(QTableWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent_window = parent
+        self.editing_item = None
+        self.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.SelectedClicked)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            current_item = self.currentItem()
+            current_row = self.currentRow()
+            current_col = self.currentColumn()
+
+            if current_item and self.isPersistentEditorOpen(current_item):
+                # Pegue o editor atual para obter o valor real que está sendo editado
+                editor = self.cellWidget(current_row, current_col)
+                if editor:
+                    try:
+                        # Tente pegar o texto diretamente do editor
+                        new_value = editor.text().strip()
+                        print(f"Valor do editor: {new_value}")
+                    except:
+                        # Se não conseguir, use o texto do item
+                        new_value = current_item.text().strip()
+                else:
+                    new_value = current_item.text().strip()
+
+                print(f"Valor antes de fechar editor: {new_value}")
+                self.closePersistentEditor(current_item)
+
+                # Armazene informações para processamento posterior
+                self.editing_item = {
+                    'item': current_item,
+                    'row': current_row,
+                    'col': current_col,
+                    'value': new_value
+                }
+
+                # Vamos garantir que o valor seja mantido após fechar o editor
+                current_item.setText(new_value)
+
+                # Use um timer para processar após todas as atualizações da UI
+                QTimer.singleShot(50, self.process_edited_item)
+            else:
+                super().keyPressEvent(event)
+        else:
+            super().keyPressEvent(event)
+
+    def process_edited_item(self):
+        if not self.editing_item:
+            return
+
+        item = self.editing_item['item']
+        row = self.editing_item['row']
+        col = self.editing_item['col']
+        valor_novo = self.editing_item['value']
+
+        # Imprime novamente para verificar se o valor ainda é o mesmo
+        print(f"Processando item editado: {valor_novo}")
+
+        try:
+            def get_text_or_default(row, col, default=""):
+                cell = self.item(row, col)
+                return cell.text().strip() if cell else default
+
+            cpf = get_text_or_default(row, 0)
+            data = get_text_or_default(row, 2)
+
+            print(f"Salvando valor: {valor_novo} para CPF: {cpf}, Data: {data}, Coluna: {col}")
+
+            if not cpf or not data or not valor_novo:
+                self.editing_item = None
+                return
+
+            # Mapear colunas para os campos do banco
+            campos = {
+                3: "entrada",
+                4: "saida_almoco",
+                5: "retorno_almoco",
+                6: "saida"
+            }
+
+            if col in campos:
+                campo = campos[col]
+
+                # Validação do horário digitado
+                if not re.match(r'^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$', valor_novo):
+                    QMessageBox.warning(self, "Formato Inválido", "O horário deve estar no formato HH:MM:SS.")
+                    self.editing_item = None
+                    return
+
+                # Converter data para formato SQL (YYYY-MM-DD)
+                if '/' in data:
+                    dia, mes, ano = data.split('/')
+                    data_sql = f"{ano}-{mes}-{dia}"
+                else:
+                    data_sql = data
+
+                # Modificar diretamente o item antes de salvar no banco
+                item.setText(valor_novo)
+
+                # Chamar função de salvamento no banco com o valor correto
+                sucesso = self.parent_window.salvar_alteracao_ponto(cpf, data_sql, campo, valor_novo)
+
+                if sucesso:
+                    item.setBackground(QColor("#ccffcc"))  # Verde para sucesso
+                else:
+                    QMessageBox.critical(self, "Erro", "Falha ao salvar no banco.")
+
+        except Exception as e:
+            print(f"Erro ao salvar: {e}")
+            QMessageBox.critical(self, "Erro de Processamento", f"Erro ao processar alteração: {str(e)}")
+
+        finally:
+            self.editing_item = None
 
 
 class MainWindow(QMainWindow, BancoSQLite):
@@ -1563,7 +1684,7 @@ class MainWindow(QMainWindow, BancoSQLite):
             import_layout.addWidget(import_group)
             import_layout.addStretch()
 
-            # Tab de Exportação
+            # Tab de Exportação--------------------------------------
             export_tab = QWidget()
             export_layout = QVBoxLayout(export_tab)
 
@@ -1584,15 +1705,15 @@ class MainWindow(QMainWindow, BancoSQLite):
             export_dept_combo.addItems(["Todos os departamentos", "TI", "RH", "Financeiro", "Marketing", "Operações"])
             export_form.addRow("Departamento:", export_dept_combo)
 
-            export_date_from = QDateEdit()
-            export_date_from.setDate(QDate.currentDate().addDays(-30))
-            export_date_from.setCalendarPopup(True)
-            export_form.addRow("Data Inicial:", export_date_from)
+            self.exporta_data_inicial = QDateEdit()
+            self.exporta_data_inicial.setDate(QDate.currentDate().addDays(-30))
+            self.exporta_data_inicial.setCalendarPopup(True)
+            export_form.addRow("Data Inicial:", self.exporta_data_inicial)
 
-            export_date_to = QDateEdit()
-            export_date_to.setDate(QDate.currentDate())
-            export_date_to.setCalendarPopup(True)
-            export_form.addRow("Data Final:", export_date_to)
+            self.exporta_data_final = QDateEdit()
+            self.exporta_data_final.setDate(QDate.currentDate())
+            self.exporta_data_final.setCalendarPopup(True)
+            export_form.addRow("Data Inicial:", self.exporta_data_final)
 
             export_format_group = QGroupBox("Formato de Exportação")
             export_format_layout = QVBoxLayout(export_format_group)
@@ -1609,15 +1730,13 @@ class MainWindow(QMainWindow, BancoSQLite):
             export_form.addRow("", export_format_group)
 
             export_btn = QPushButton("Exportar Dados")
-            export_btn.clicked.connect(self.export_timesheet)
+            export_btn.clicked.connect(self.exportar_ponto_sci)
             export_form.addRow("", export_btn)
 
             export_layout.addWidget(export_group)
             export_layout.addStretch()
 
             # Tab de Visualização ---------------------------------------------
-
-
             view_tab = QWidget()
             view_layout = QVBoxLayout(view_tab)
 
@@ -1648,13 +1767,8 @@ class MainWindow(QMainWindow, BancoSQLite):
             view_layout.addWidget(view_filters)
 
             # Tabela de ponto
-            self.view_table = QTableWidget()
+            self.view_table = TimesheetTable(self)
             view_table = self.view_table
-            try:
-                view_table.itemChanged.disconnect(self.auto_save)
-            except (TypeError, RuntimeError):
-                pass  # Apenas ignora se não estiver conectado
-
             view_table.setColumnCount(7)
             view_table.setHorizontalHeaderLabels(
                 ["CPF", "Funcionário", "Data", "Entrada", "Saída Almoço", "Retorno Almoço", "Saída"])
@@ -1689,26 +1803,9 @@ class MainWindow(QMainWindow, BancoSQLite):
                 view_table.setItem(row, 6, format_cell(exit_time))
 
             view_layout.addWidget(view_table)
-            self.editando_via_codigo = False
-
-            def on_item_changed(item: QTableWidgetItem):
-                if not item:
-                    return
-
-                # Se a edição foi feita via código, ignoramos
-                if self.editando_via_codigo:
-                    return
-
-                # Verifica se já foi marcado como edição manual
-                if not item.data(Qt.ItemDataRole.UserRole):
-                    item.setData(Qt.ItemDataRole.UserRole, True)  # Marca como edição manual
-                    return
-
-                # Chama auto_save apenas se foi modificação manual
-                self.auto_save(item)
-
-            view_table.itemChanged.connect(on_item_changed)
-
+            # self.view_table = TimesheetTable(self)
+            self.shortcut_delete = QShortcut(QKeySequence("Ctrl+Alt+D"), self)
+            self.shortcut_delete.activated.connect(self.confirm_delete_entries)
             # Adicionar as tabs
             tabs.addTab(import_tab, "Importação")
             tabs.addTab(view_tab, "Visualização")
@@ -1724,79 +1821,30 @@ class MainWindow(QMainWindow, BancoSQLite):
         except Exception as e:
             print(e)
 
-    def auto_save(self, item):
-        """
-        Função chamada quando um item da tabela é alterado.
-        Salva automaticamente no banco e fornece feedback ao usuário.
-        """
-        try:
-            # Temporariamente desativa o sinal para evitar loop infinito
-            self.view_table.blockSignals(True)
-
-            row = item.row()
-            col = item.column()
-
-            def get_text_or_default(table, row, col, default=""):
-                """ Retorna o texto da célula ou um valor padrão se a célula for None. """
-                cell = table.item(row, col)
-                return cell.text().strip() if cell is not None else default
-
-            # Obtendo os valores das células
-            cpf = get_text_or_default(self.view_table, row, 0)
-            funcionario = get_text_or_default(self.view_table, row, 1)
-            data = get_text_or_default(self.view_table, row, 2)
-
-            # Verificação para evitar salvar dados inválidos
-            if not cpf or not data:
-                self.view_table.blockSignals(False)
-                return
-
-            # Mapeamento de colunas para os nomes dos campos no banco
-            campos = {
-                3: "entrada",
-                4: "saida_almoco",
-                5: "retorno_almoco",
-                6: "saida"
-            }
-
-            if col in campos:
-                campo = campos[col]
-                valor_novo = item.text().strip()
-
-                # Verificar formato do horário (deve ser HH:MM:SS ou estar vazio)
-                if valor_novo and not re.match(r'^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$', valor_novo):
-                    QMessageBox.warning(self, "Formato Inválido", "O horário deve estar no formato HH:MM:SS.")
-                    self.view_table.blockSignals(False)
-                    return
-
-                # Converter data para formato SQL (YYYY-MM-DD)
-                if '/' in data:
-                    dia, mes, ano = data.split('/')
-                    data_sql = f"{ano}-{mes}-{dia}"
-                else:
-                    data_sql = data
-
-                # Obter horário atual para log
-                timestamp_atual = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                # Registrar a alteração no banco
-                sucesso = self.salvar_alteracao_ponto(cpf, data_sql, campo, valor_novo)
-
-                if sucesso:
-                    if valor_novo == "00:00:00":
-                        item.setBackground(QColor("#ffcccc"))  # Vermelho claro
-                    else:
-                        item.setBackground(QColor("#ccffcc"))  # Verde claro
-                else:
-                    QMessageBox.critical(self, "Erro ao Salvar", "Não foi possível salvar a alteração no banco.")
-                    self.update_table_ponto(self.view_table, self.view_date)  # Reverter alteração
-
-        except Exception as e:
-            logger.error("Erro ao processar alteração: %s", e)
-
-        finally:
-            # Reativar o sinal para evitar bloqueios permanentes
-            self.view_table.blockSignals(False)
+    def confirm_delete_entries(self):
+        print("Chamou confirm_delete_entries")
+        reply = QMessageBox.question(
+            self,
+            "Excluir lançamentos",
+            "Deseja excluir todos os lançamentos?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        print("Resposta do QMessageBox:", reply)
+        if reply == QMessageBox.StandardButton.Yes:
+            print("Usuário confirmou; solicitando senha...")
+            password, ok = QInputDialog.getText(
+                self,
+                "Confirmação de Senha",
+                "Informe a senha:",
+                QLineEdit.EchoMode.Password
+            )
+            print("Senha digitada:", password, "Ok:", ok)
+            if ok and password == "batiliere":
+                self.view_table.clearContents()
+                self.deleta_todos_dados("ponto")
+            else:
+                QMessageBox.warning(self, "Senha inválida", "A senha informada está incorreta!")
 
     def update_table_ponto(self, table, date_widget):
         """
@@ -1880,7 +1928,9 @@ class MainWindow(QMainWindow, BancoSQLite):
             registros = self.processar_pontos(self._processar_arquivo(file_path))
 
             # Obtém dados do formulário
-            empresa = self.company_combo.currentText()
+            empresa = self.company_combo.currentText()  # Ex: "3 - uniconte"
+            codigo_empresa = empresa.split(" - ")[0].strip()  # Resultado: "3"
+
             data_inicial = self.date_from.date().toString("dd/MM/yyyy")
             data_final = self.date_to.date().toString("dd/MM/yyyy")
             formato_selecionado = self.format_combo.currentText()
@@ -1891,10 +1941,13 @@ class MainWindow(QMainWindow, BancoSQLite):
             for p in registros_filtrados:
                 print(p)
                 if len(p["codigo"]) > 9 > len(p["valor"]):
-                    # Importa para o banco os dados
-                    self.inserir_atualizar_ponto(cpf=p["codigo"], timestamp=p["timestamp"],
-                                                 tipo=p["tipo"], codigo_empresa=empresa)
+                    # Importa para o banco os dados utilizando o número da empresa separado
+                    self.inserir_atualizar_ponto(cpf=p["codigo"],
+                                                 timestamp=p["timestamp"],
+                                                 tipo=p["tipo"],
+                                                 codigo_empresa=codigo_empresa)
 
+            self.update_table_ponto(self.view_table, self.view_date)
             # Mensagem de sucesso
             QMessageBox.information(
                 self,
@@ -2656,13 +2709,35 @@ class MainWindow(QMainWindow, BancoSQLite):
     def import_timesheet(self):
         QMessageBox.information(self, "Importação de Ponto", "Iniciando importação de dados de ponto...")
 
-    def export_timesheet(self):
-        file_name, _ = QFileDialog.getSaveFileName(self, "Exportar Dados de Ponto", "",
-                                                   "Arquivos CSV (*.csv);;Arquivos de Texto (*.txt);;Arquivos Excel ("
-                                                   "*.xlsx)")
-        if file_name:
-            QMessageBox.information(self, "Exportação de Ponto",
-                                    f"Dados de ponto exportados com sucesso para {file_name}")
+    def exportar_ponto_sci(self):
+        try:
+            # Captura as datas de início e fim definidas na interface
+            data_inicio = self.exporta_data_inicial.text()
+            data_fim = self.exporta_data_final.text()
+            periodo = f"{data_inicio} a {data_fim}"
+
+            print(data_inicio, data_fim)
+
+            # Obtém os dados do ponto para o período especificado
+            dados = self.exporta_ponto_periodo(data_inicio, data_fim)
+            print(dados)
+
+            # Cria um nome padrão para o arquivo com a data de hoje
+            data_hoje = datetime.now().strftime("%Y-%m-%d")
+            nome_padrao = f"exportacao_ponto_{data_hoje}.txt"
+
+            # Abre a caixa de diálogo para o usuário definir onde salvar o arquivo TXT com o nome padrão
+            file_name, _ = QFileDialog.getSaveFileName(self, "Exportar Dados de Ponto", nome_padrao,
+                                                       "Arquivos de Texto (*.txt)")
+            if file_name:
+                with open(file_name, 'w', encoding='utf-8') as arquivo:
+                    for linha in dados:
+                        arquivo.write(linha + "\n")
+
+                QMessageBox.information(self, "Exportação de Ponto",
+                                        f"Dados de ponto exportados com sucesso para {file_name}")
+        except Exception as e:
+            print(e)
 
     def save_settings(self):
         QMessageBox.information(self, "Configurações", "Configurações salvas com sucesso!")

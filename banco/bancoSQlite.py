@@ -529,45 +529,173 @@ class BancoSQLite:
             logger.error(f"Erro ao visualizar ponto: {str(e)}")
             return []
 
-
-
-    def salvar_alteracao_ponto(self, cpf, data, campo, valor_novo):
+    def exporta_ponto_periodo(self, data_inicio, data_fim):
         """
-        Salva a alteração registrando em uma tabela de log sem alterar o timestamp original.
+        Exporta os registros de ponto para um período específico, informando as datas separadamente.
+
+        Parâmetros:
+          - data_inicio: data inicial no formato "DD/MM/YYYY"
+          - data_fim: data final no formato "DD/MM/YYYY"
+
+        Formato de exportação:
+          - Posições 1 a 4: Código da empresa (id da empresa com 4 dígitos)
+          - Posições 5 a 15: PIS do funcionário (11 dígitos; se estiver vazio, utiliza o CPF)
+          - Posições 17 a 18: Dia (2 dígitos)
+          - Posições 19 a 20: Mês (2 dígitos)
+          - Posições 21 a 24: Ano (4 dígitos)
+          - Ao final, acrescenta-se ":MM", onde MM são os minutos da entrada da manhã.
         """
         try:
-            # Converter data para o formato SQL, se necessário
+            import datetime
+
+            # Remove espaços extras nas datas de entrada
+            data_inicio = data_inicio.strip()
+            data_fim = data_fim.strip()
+
+            # Converte as datas de início e fim para o formato ISO (YYYY-MM-DD)
+            data_inicio_iso = datetime.datetime.strptime(data_inicio, "%d/%m/%Y").strftime("%Y-%m-%d")
+            data_fim_iso = datetime.datetime.strptime(data_fim, "%d/%m/%Y").strftime("%Y-%m-%d")
+
+            # Consulta unindo as tabelas ponto, cadastro_funcionario e cadastro_empresa
+            query = """
+                SELECT 
+                    e.id as empresa_id,
+                    f.pis_pasep,
+                    f.CPF as cpf,
+                    substr(p.timestamp, 1, 10) as data_registro,
+                    substr(p.timestamp, 12, 8) as horario,
+                    p.tipo
+                FROM ponto p
+                JOIN cadastro_funcionario f ON p.cpf = f.CPF
+                JOIN cadastro_empresa e ON p.codigo_empresa = e.id
+                WHERE substr(p.timestamp,1,10) BETWEEN ? AND ?
+                ORDER BY f.nome, p.timestamp
+            """
+            self.cursor.execute(query, (data_inicio_iso, data_fim_iso))
+            registros_brutos = self.cursor.fetchall()
+
+            if not registros_brutos:
+                logger.warning(f"Nenhum registro de ponto encontrado para o período de {data_inicio} a {data_fim}.")
+                return []
+
+            # Agrupa os registros por (empresa_id, pis_pasep, cpf, data_registro)
+            registros_por_registro = {}
+            for empresa_id, pis, cpf, data_registro, horario, tipo in registros_brutos:
+                chave = (empresa_id, pis, cpf, data_registro)
+                if chave not in registros_por_registro:
+                    registros_por_registro[chave] = []
+                registros_por_registro[chave].append((horario, tipo))
+
+            # Função auxiliar para converter string em objeto time
+            def str_to_time(t_str):
+                return datetime.datetime.strptime(t_str, "%H:%M:%S").time()
+
+            # Seleciona o registro do tipo 'entrada' com horário menor que 13:00, mais próximo das 08:00
+            def seleciona_entrada(registros):
+                candidatos = [r for r in registros if r[1] == 'entrada' and r[0] < '13:00:00']
+                if not candidatos:
+                    return "00:00:00"
+                return min(
+                    candidatos,
+                    key=lambda r: abs(
+                        datetime.datetime.combine(datetime.date.today(), str_to_time(r[0])) -
+                        datetime.datetime.combine(datetime.date.today(), datetime.time(8, 0, 0))
+                    )
+                )[0]
+
+            resultado = []
+            for (empresa_id, pis, cpf, data_registro), registros in registros_por_registro.items():
+                entrada_manha = seleciona_entrada(registros)
+
+                # Converte a data do registro (formato "YYYY-MM-DD")
+                dt = datetime.datetime.strptime(data_registro, "%Y-%m-%d")
+                dia = dt.strftime("%d")
+                mes_ = dt.strftime("%m")
+                ano_ = dt.strftime("%Y")
+
+                # Extrai os minutos da entrada da manhã
+                try:
+                    t = datetime.datetime.strptime(entrada_manha, "%H:%M:%S")
+                    minuto = t.strftime("%M")
+                except Exception:
+                    minuto = "00"
+
+                # Se o PIS estiver vazio, utiliza o CPF
+                if not pis or pis.strip() == "":
+                    pis = cpf
+
+                # Formata o código da empresa (4 dígitos) e o PIS (11 dígitos)
+                empresa_str = f"{empresa_id:04d}"
+                pis_str = pis.zfill(11)
+
+                # Monta a string de exportação:
+                # Posições 1-4: empresa, 5-15: pis, 17-18: dia, 19-20: mês, 21-24: ano e ao final ":<minutos>"
+                export_str = f"{empresa_str}{pis_str}{dia}{mes_}{ano_}:{minuto}"
+                resultado.append(export_str)
+
+            resultado.sort()  # Ordena se necessário
+            print(f"Exportação gerada para o período de {data_inicio} a {data_fim}: {len(resultado)} registros.")
+            return resultado
+
+        except Exception as e:
+            logger.error(f"Erro ao exportar ponto para o período de {data_inicio} a {data_fim}: {str(e)}")
+            return []
+
+    def salvar_alteracao_ponto(self, cpf, data, campo, valor_horario):
+        print("AAAAAAAAAAAAAAAAAAA", valor_horario)  # Depuração
+        """
+        Salva o ponto com o horário informado para o campo específico.
+
+        Args:
+            cpf: CPF do funcionário
+            data: Data do registro
+            campo: Campo a ser atualizado (entrada, saida_almoco, retorno_almoco, saida)
+            valor_horario: Horário informado pelo usuário (formato HH:MM:SS)
+        """
+        print(f"Salvando: Campo={campo}, Valor={valor_horario}")
+
+        try:
+            # Certifique-se de que o horário está no formato correto
+            if not isinstance(valor_horario, str) or ":" not in valor_horario:
+                logger.error(f"Formato de horário inválido: {valor_horario}")
+                return False
+
+            # Converter data para o formato correto (YYYY-MM-DD)
             if '/' in data:
                 dia, mes, ano = data.split('/')
                 data_sql = f"{ano}-{mes}-{dia}"
             else:
                 data_sql = data
 
-            # Consultar o registro atual na tabela ponto
-            query_atual = """
-              SELECT id, timestamp FROM ponto
-              WHERE cpf = ? AND date(substr(timestamp, 1, 10)) = ? AND tipo = ?
-              """
+            # Preservar o valor_horario original para uso na função inserir_atualizar_ponto
+            horario_original = valor_horario
 
-            tipo = 'entrada' if campo in ['entrada', 'retorno_almoco'] else 'saida'
-            self.cursor.execute(query_atual, (cpf, data_sql, tipo))
-            resultado = self.cursor.fetchone()
+            # Se valor_horario estiver no formato HH:MM:SS, extraia apenas HH:MM se necessário
+            if valor_horario.count(":") == 2:
+                partes = valor_horario.split(":")
+                hora, minuto = partes[0], partes[1]
+                hora_formatada = f"{hora}:{minuto}"
+            else:
+                hora_formatada = valor_horario
 
-            if not resultado:
-                logger.warning(f"Registro não encontrado para CPF {cpf} na data {data}")
-                return False
+            # Formar o timestamp completo mantendo o horário original
+            timestamp = f"{data_sql}T{horario_original}-0400"
 
-            ponto_id, timestamp_atual = resultado
+            # Determinar o tipo com base no campo recebido
+            mapeamento_tipo = {
+                "entrada": "entrada",
+                "saida_almoco": "saida",
+                "retorno_almoco": "entrada",
+                "saida": "saida"
+            }
 
-            # Inserir a alteração na tabela de log
-            query_log = """
-              INSERT INTO ponto_alteracoes (ponto_id, campo_alterado, valor_antigo, valor_novo, data_alteracao)
-              VALUES (?, ?, ?, ?, datetime('now'))
-              """
-            self.cursor.execute(query_log, (ponto_id, campo, timestamp_atual, valor_novo))
-            self.conn.commit()
+            tipo = mapeamento_tipo.get(campo, "entrada")  # Padrão para entrada se desconhecido
 
-            logger.info(f"Alteração registrada com sucesso para CPF {cpf}, campo {campo}.")
+            # Usar a função que insere ou atualiza ponto com o horário original
+            self.inserir_atualizar_ponto(cpf, timestamp, tipo, 3)
+
+            logger.info(
+                f"Registro salvo para CPF {cpf}, data {data_sql}, campo {campo}, hora {horario_original}, tipo {tipo}.")
             return True
 
         except Exception as e:
@@ -660,3 +788,14 @@ class BancoSQLite:
         except Exception as e:
             logger.error(f"Erro ao buscar histórico de alterações: {str(e)}")
             return []
+
+    def deleta_todos_dados(self, tabela):
+        try:
+            query = f"DELETE FROM {tabela};"
+            with self.transaction():
+                self.cursor.execute(query)
+            return True
+
+        except Exception as e:
+            logger.error(f"Erro ao atualizar registro : {str(e)}")
+            return False
