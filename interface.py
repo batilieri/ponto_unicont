@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime
@@ -11,6 +12,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVB
                              QGroupBox, QStackedWidget,
                              QCheckBox, QSpinBox, QMessageBox, QRadioButton, QToolBar, QGridLayout, QDialog)
 from banco.bancoSQlite import BancoSQLite, logger
+import re
+import datetime
 
 
 class MainWindow(QMainWindow, BancoSQLite):
@@ -1647,6 +1650,11 @@ class MainWindow(QMainWindow, BancoSQLite):
             # Tabela de ponto
             self.view_table = QTableWidget()
             view_table = self.view_table
+            try:
+                view_table.itemChanged.disconnect(self.auto_save)
+            except (TypeError, RuntimeError):
+                pass  # Apenas ignora se não estiver conectado
+
             view_table.setColumnCount(7)
             view_table.setHorizontalHeaderLabels(
                 ["CPF", "Funcionário", "Data", "Entrada", "Saída Almoço", "Retorno Almoço", "Saída"])
@@ -1664,17 +1672,42 @@ class MainWindow(QMainWindow, BancoSQLite):
             view_table.setColumnWidth(5, 120)  # Retorno Almoço
             view_table.setColumnWidth(6, 120)  # Saída
 
+            def format_cell(value):
+                """Define a cor de fundo da célula baseado no valor do horário"""
+                item = QTableWidgetItem(value)
+                color = QColor("#ffcccc") if value == "00:00:00" else QColor("#ccffcc")
+                item.setBackground(color)
+                return item
+
             for row, (cpf, employee, date, entry, lunch_out, lunch_in, exit_time) in enumerate(sample_timesheet):
                 view_table.setItem(row, 0, QTableWidgetItem(cpf))
                 view_table.setItem(row, 1, QTableWidgetItem(employee))
                 view_table.setItem(row, 2, QTableWidgetItem(date))
-                view_table.setItem(row, 3, QTableWidgetItem(entry))
-                view_table.setItem(row, 4, QTableWidgetItem(lunch_out))
-                view_table.setItem(row, 5, QTableWidgetItem(lunch_in))
-                view_table.setItem(row, 6, QTableWidgetItem(exit_time))
+                view_table.setItem(row, 3, format_cell(entry))
+                view_table.setItem(row, 4, format_cell(lunch_out))
+                view_table.setItem(row, 5, format_cell(lunch_in))
+                view_table.setItem(row, 6, format_cell(exit_time))
 
             view_layout.addWidget(view_table)
-            view_table.itemChanged.connect(self.auto_save)
+            self.editando_via_codigo = False
+
+            def on_item_changed(item: QTableWidgetItem):
+                if not item:
+                    return
+
+                # Se a edição foi feita via código, ignoramos
+                if self.editando_via_codigo:
+                    return
+
+                # Verifica se já foi marcado como edição manual
+                if not item.data(Qt.ItemDataRole.UserRole):
+                    item.setData(Qt.ItemDataRole.UserRole, True)  # Marca como edição manual
+                    return
+
+                # Chama auto_save apenas se foi modificação manual
+                self.auto_save(item)
+
+            view_table.itemChanged.connect(on_item_changed)
 
             # Adicionar as tabs
             tabs.addTab(import_tab, "Importação")
@@ -1694,8 +1727,8 @@ class MainWindow(QMainWindow, BancoSQLite):
     def auto_save(self, item):
         """
         Função chamada quando um item da tabela é alterado.
+        Salva automaticamente no banco e fornece feedback ao usuário.
         """
-
         try:
             # Temporariamente desativa o sinal para evitar loop infinito
             self.view_table.blockSignals(True)
@@ -1703,12 +1736,22 @@ class MainWindow(QMainWindow, BancoSQLite):
             row = item.row()
             col = item.column()
 
-            # Obter dados da linha
-            cpf = self.view_table.item(row, 0).text()
-            funcionario = self.view_table.item(row, 1).text()
-            data = self.view_table.item(row, 2).text()
+            def get_text_or_default(table, row, col, default=""):
+                """ Retorna o texto da célula ou um valor padrão se a célula for None. """
+                cell = table.item(row, col)
+                return cell.text().strip() if cell is not None else default
 
-            # Mapear coluna para nome do campo
+            # Obtendo os valores das células
+            cpf = get_text_or_default(self.view_table, row, 0)
+            funcionario = get_text_or_default(self.view_table, row, 1)
+            data = get_text_or_default(self.view_table, row, 2)
+
+            # Verificação para evitar salvar dados inválidos
+            if not cpf or not data:
+                self.view_table.blockSignals(False)
+                return
+
+            # Mapeamento de colunas para os nomes dos campos no banco
             campos = {
                 3: "entrada",
                 4: "saida_almoco",
@@ -1718,25 +1761,38 @@ class MainWindow(QMainWindow, BancoSQLite):
 
             if col in campos:
                 campo = campos[col]
-                valor_novo = item.text()
+                valor_novo = item.text().strip()
 
-                # Verificar formato do horário (deve ser HH:MM:SS)
-                import re
-                if valor_novo != "00:00:00" and not re.match(r'^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$', valor_novo):
-                    print("Formato inválido! Use HH:MM:SS")
-                    # Reativar sinais antes de sair
+                # Verificar formato do horário (deve ser HH:MM:SS ou estar vazio)
+                if valor_novo and not re.match(r'^([01]\d|2[0-3]):([0-5]\d):([0-5]\d)$', valor_novo):
+                    QMessageBox.warning(self, "Formato Inválido", "O horário deve estar no formato HH:MM:SS.")
                     self.view_table.blockSignals(False)
                     return
 
-                # Salvar alteração no banco de dados
-                sucesso = self.salvar_alteracao_ponto(cpf, data, campo, valor_novo)
+                # Converter data para formato SQL (YYYY-MM-DD)
+                if '/' in data:
+                    dia, mes, ano = data.split('/')
+                    data_sql = f"{ano}-{mes}-{dia}"
+                else:
+                    data_sql = data
 
-                if not sucesso:
-                    print("Erro ao salvar alteração!")
+                # Obter horário atual para log
+                timestamp_atual = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                # Registrar a alteração no banco
+                sucesso = self.salvar_alteracao_ponto(cpf, data_sql, campo, valor_novo)
+
+                if sucesso:
+                    if valor_novo == "00:00:00":
+                        item.setBackground(QColor("#ffcccc"))  # Vermelho claro
+                    else:
+                        item.setBackground(QColor("#ccffcc"))  # Verde claro
+                else:
+                    QMessageBox.critical(self, "Erro ao Salvar", "Não foi possível salvar a alteração no banco.")
                     self.update_table_ponto(self.view_table, self.view_date)  # Reverter alteração
 
         except Exception as e:
-            print(f"Erro ao processar alteração na tabela: {str(e)}")
+            logger.error("Erro ao processar alteração: %s", e)
 
         finally:
             # Reativar o sinal para evitar bloqueios permanentes
@@ -1763,14 +1819,27 @@ class MainWindow(QMainWindow, BancoSQLite):
                 # Adicionar nova linha
                 table.insertRow(row)
 
-                # Preencher células
-                table.setItem(row, 0, QTableWidgetItem(cpf))
-                table.setItem(row, 1, QTableWidgetItem(nome))
-                table.setItem(row, 2, QTableWidgetItem(data))
-                table.setItem(row, 3, QTableWidgetItem(entrada))
-                table.setItem(row, 4, QTableWidgetItem(saida_almoco))
-                table.setItem(row, 5, QTableWidgetItem(retorno_almoco))
-                table.setItem(row, 6, QTableWidgetItem(saida))
+                # Criar itens da tabela
+                itens = [
+                    QTableWidgetItem(cpf),
+                    QTableWidgetItem(nome),
+                    QTableWidgetItem(data),
+                    QTableWidgetItem(entrada),
+                    QTableWidgetItem(saida_almoco),
+                    QTableWidgetItem(retorno_almoco),
+                    QTableWidgetItem(saida)
+                ]
+
+                # Definir cores
+                for i, item in enumerate(itens[3:]):  # Apenas colunas de horário
+                    if item.text() == "00:00:00":
+                        item.setBackground(QColor("#ffcccc"))  # Vermelho claro
+                    else:
+                        item.setBackground(QColor("#ccffcc"))  # Verde claro
+
+                # Adicionar itens à tabela
+                for col, item in enumerate(itens):
+                    table.setItem(row, col, item)
 
             # Mostrar mensagem com quantidade de registros
             print(f"Tabela atualizada com {len(registros)} registros para {date_filter}")
