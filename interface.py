@@ -1,3 +1,4 @@
+import csv
 import os
 import re
 import sys
@@ -131,7 +132,7 @@ class TimesheetTable(QTableWidget):
 
         except Exception as e:
             print(f"Erro ao salvar: {e}")
-            QMessageBox.critical(self, "Erro de Processamento", f"Erro ao processar alteração: {str(e)}")
+            logger.error("Erro", e)
 
         finally:
             self.editing_item = None
@@ -560,7 +561,7 @@ class MainWindow(QMainWindow, BancoSQLite):
             dialog.setLayout(layout)
             dialog.show()
         except Exception as e:
-            QMessageBox.critical(self, "Erro de Processamento", f"Erro ao processar alteração: {str(e)}")
+            logger.error("Erro", e)
 
     def init_companies_screen(self):
         try:
@@ -611,13 +612,13 @@ class MainWindow(QMainWindow, BancoSQLite):
             # Carrega os dados do banco
             self.load_companies_data()
         except Exception as e:
-            QMessageBox.critical(self, "Erro de Processamento", f"Erro ao processar alteração: {str(e)}")
+            logger.error("Erro", e)
 
     def show_add_company_form(self):
         try:
-            dialog = QWidget(self, Qt.WindowType.Dialog)
+            dialog = QDialog(self)  # Definir a janela principal como pai
             dialog.setWindowTitle("Adicionar Nova Empresa")
-            dialog.setMinimumWidth(400)
+            dialog.setMinimumSize(400, 400)  # Ajuste o tamanho conforme necessário
             dialog.setStyleSheet("background-color: white; border-radius: 8px;")
 
             layout = QVBoxLayout(dialog)
@@ -658,13 +659,13 @@ class MainWindow(QMainWindow, BancoSQLite):
             self.email.setPlaceholderText("email@empresa.com")
             form.addRow("Email:", self.email)
 
-            layout.addLayout(form)  # Adiciona o formulário ao layout principal
+            layout.addLayout(form)
 
             buttons = QHBoxLayout()
 
             def save_and_close():
                 self.save_data()
-                dialog.close()  # Fecha o diálogo após salvar
+                dialog.accept()
 
             save = QPushButton("Salvar")
             save.setStyleSheet("background-color: #28a745; color: white; padding: 6px; border-radius: 4px;")
@@ -672,25 +673,26 @@ class MainWindow(QMainWindow, BancoSQLite):
 
             cancel = QPushButton("Cancelar")
             cancel.setStyleSheet("background-color: #dc3545; color: white; padding: 6px; border-radius: 4px;")
-            cancel.clicked.connect(dialog.close)
+            cancel.clicked.connect(dialog.reject)
 
             buttons.addWidget(save)
             buttons.addWidget(cancel)
 
-            layout.addLayout(buttons)  # Adiciona os botões ao layout principal
-
+            layout.addLayout(buttons)
             dialog.setLayout(layout)
 
-            self.name_emp.returnPressed.connect(lambda: self.cnpj.setFocus())
-            self.cnpj.returnPressed.connect(lambda: self.address_emp.setFocus())
-            self.address_emp.returnPressed.connect(lambda: self.city_emp.setFocus())
-            self.city_emp.returnPressed.connect(lambda: self.estado_emp.setFocus())
-            self.phone_emp.returnPressed.connect(lambda: self.email.setFocus())
-            self.email.returnPressed.connect(lambda: save.click())  # Pressionar Enter no email clica em "Salvar"
+            # Obtém a posição da janela principal
+            parent_rect = self.frameGeometry()
+            # Obtém o tamanho do diálogo
+            dialog_rect = dialog.frameGeometry()
+            # Move o centro do diálogo para o centro da janela principal
+            dialog_rect.moveCenter(parent_rect.center())
+            # Aplica a nova posição ao diálogo
+            dialog.move(dialog_rect.topLeft())
 
-            dialog.show()
+            dialog.exec()  # Exibe o diálogo modal
         except Exception as e:
-            QMessageBox.critical(self, "Erro de Processamento", f"Erro ao processar alteração: {str(e)}")
+            logger.error("Erro", e)
 
     def save_data(self):
         try:
@@ -726,7 +728,7 @@ class MainWindow(QMainWindow, BancoSQLite):
 
 
         except Exception as e:
-            print(f"Ocorreu um erro ao cadastrar: {e}")
+            logger.error("Erro", e)
 
     # ---------------------------------------------------------------------------------------------
     # Cadastro de Colaborador
@@ -827,6 +829,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                     self.employees_table.setItem(row, 3, QTableWidgetItem(nome_func))
                     self.employees_table.setItem(row, 4, QTableWidgetItem(cpf))
                     self.employees_table.setItem(row, 5, QTableWidgetItem(status))
+                    self.employees_table.setColumnWidth(3, 350)  # Funcionário
 
                     # Status com cores personalizadas
                     status_item = QTableWidgetItem(status)
@@ -867,6 +870,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                     actions_cell.setLayout(actions_layout)
 
                     self.employees_table.setCellWidget(row, 6, actions_cell)
+
             else:
                 # Se não houver funcionários cadastrados
                 self.employees_table.setRowCount(0)
@@ -874,7 +878,7 @@ class MainWindow(QMainWindow, BancoSQLite):
             layout.addWidget(self.employees_table)
             self.stack.addWidget(employees_widget)  # Gestão de F
         except Exception as e:
-            QMessageBox.critical(self, "Erro de Processamento", f"Erro ao processar alteração: {str(e)}")
+            logger.error("Erro", e)
 
     def load_employees_data(self):
         try:
@@ -1052,7 +1056,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                 else:
                     empresa_combo.addItem("Nenhuma empresa cadastrada")
             except Exception as e:
-                print(f"Erro ao carregar empresas: {e}")
+                logger.error("Erro", e)
                 empresa_combo.addItem("Erro ao carregar empresas")
             personal_layout.addRow("Empresa:", empresa_combo)
 
@@ -1399,7 +1403,16 @@ class MainWindow(QMainWindow, BancoSQLite):
 
             # Insere ou atualiza o registro no banco de dados.
             # Neste exemplo, estamos usando o CPF como chave única.
-            self.inserir_ou_atualizar_registro("cadastro_funcionario", dados, cpf)
+            retorno = self.inserir_ou_atualizar_registro("cadastro_funcionario", dados, cpf)
+            print(retorno)
+            if retorno:
+                if "UNIQUE" in retorno:
+                    QMessageBox.critical(self, "Erro", f"O número da folha já existe no banco!")
+                elif retorno:
+                    print("Deu certo")
+                elif "cadastro_funcionario.n_folha" in retorno:
+                    QMessageBox.critical(self, "Erro",
+                                         f"Verifique se está inforado o número da folha em outro funcionário!\n{retorno}")
 
             # Caso exista um método para atualizar a visualização dos funcionários
             if hasattr(self, "load_employees_data"):
@@ -1408,12 +1421,13 @@ class MainWindow(QMainWindow, BancoSQLite):
             # self.load_employees_data()
             logger.info("Funcionário cadastrado com sucesso!")
         except Exception as e:
-            logger.error(f"Ocorreu um erro ao cadastrar o funcionário: {e}")
-            # Exibe a mensagem de erro com um QMessageBox
+            logger.warning(f"Ocorreu um problema ao cadastrar o funcionário: {e}")  # Altera de error para warning
             msg = QMessageBox()
-            msg.setIcon(QMessageBox.Icon.Critical)
-            msg.setWindowTitle("Erro")
-            msg.setText(f"Ocorreu um erro ao cadastrar o funcionário: {e}")
+            msg.setIcon(QMessageBox.Icon.Warning)  # Ícone de aviso (exclamação)
+            msg.setWindowTitle("Atenção")
+            msg.setText(f"Número da folha do funcionário já existente!\nVerifique se o funcionário já está cadastrado!"
+                        f"\nErro: {e}")
+            msg.setStandardButtons(QMessageBox.StandardButton.Ok)
             msg.exec()
 
     def excluir_funcionario(self, company_id):
@@ -1458,9 +1472,9 @@ class MainWindow(QMainWindow, BancoSQLite):
     def show_add_employee_form(self):
         try:
             # Aba de novo funcionário
-            dialog = QWidget(self, Qt.WindowType.Dialog)
+            dialog = QDialog(self)  # Define a janela principal como pai
             dialog.setWindowTitle("Adicionar Novo Funcionário")
-            dialog.setMinimumWidth(500)
+            dialog.setMinimumSize(500, 400)  # Ajuste conforme necessário
             dialog.setStyleSheet("background-color: white; border-radius: 8px;")
 
             layout = QVBoxLayout(dialog)
@@ -1601,7 +1615,8 @@ class MainWindow(QMainWindow, BancoSQLite):
             self.data_adimissap.editingFinished.connect(lambda: self.estado_civil.setFocus())
             # Para QComboBox, utilize o sinal activated (o parâmetro _ ignora o índice):
             self.estado_civil.activated.connect(lambda _: self.telefone.setFocus())
-            self.telefone.returnPressed.connect(lambda: self.email_func.setFocus())  # pula para a aba "Dados Profissionais"
+            self.telefone.returnPressed.connect(
+                lambda: self.email_func.setFocus())  # pula para a aba "Dados Profissionais"
 
             # Conexões na aba "Dados Profissionais"
             # Supondo que queremos preencher o campo Departamento primeiro
@@ -1618,10 +1633,19 @@ class MainWindow(QMainWindow, BancoSQLite):
             self.banco.activated.connect(lambda _: self.conta.setFocus())
             self.conta.returnPressed.connect(lambda: save.click())  # Pressionar Enter em Conta clica em "Salvar"
 
+            # Obtém a posição da janela principal
+            parent_rect = self.frameGeometry()
+            # Obtém o tamanho do diálogo
+            dialog_rect = dialog.frameGeometry()
+            # Move o centro do diálogo para o centro da janela principal
+            dialog_rect.moveCenter(parent_rect.center())
+            # Aplica a nova posição ao diálogo
+            dialog.move(dialog_rect.topLeft())
+
             dialog.show()
 
         except Exception as e:
-            QMessageBox.critical(self, "Erro de Processamento", f"Erro ao processar alteração: {str(e)}")
+            logger.error("Erro", e)
 
     # ----------------------- Importação Do ponto
 
@@ -1756,9 +1780,15 @@ class MainWindow(QMainWindow, BancoSQLite):
 
             # Adicionando os widgets ao layout
             view_filters_layout.addWidget(QLabel("Funcionário:"))
-            employee_filter = QComboBox()
-            employee_filter.addItems(["Não desenvolvido 😎"])
-            view_filters_layout.addWidget(employee_filter)
+            funcionarios = self.visualizar_tabela("cadastro_funcionario")
+            self.filtra_funcionario = QComboBox()
+            self.filtra_funcionario.addItem(f"Nenhum selecionado")
+            for fun in funcionarios:
+                cod = fun[1]
+                name = fun[2]
+                self.filtra_funcionario.addItem(f"{cod} - {name}")
+
+            view_filters_layout.addWidget(self.filtra_funcionario)
 
             view_filters_layout.addWidget(QLabel("Data:"))
             self.view_date = QDateEdit()
@@ -1770,8 +1800,9 @@ class MainWindow(QMainWindow, BancoSQLite):
             # Criando o botão novamente e adicionando ao layout
             view_filter_btn = QPushButton("Filtrar")
             view_filters_layout.addWidget(view_filter_btn)
-            # Conectar o botão de filtro à função de atualização
-            view_filter_btn.clicked.connect(lambda: self.update_table_ponto(view_table, view_date))
+            # Conectar o botão de filtro à função de atualização com funcionário e data
+            view_filter_btn.clicked.connect(lambda: self.update_table_ponto(view_table,
+                                                                            view_date, self.filtra_funcionario))
 
             # Adicionando o grupo de filtros ao layout principal
             view_layout.addWidget(view_filters)
@@ -1829,7 +1860,7 @@ class MainWindow(QMainWindow, BancoSQLite):
             self.date_to = date_to
             self.format_combo = format_combo
         except Exception as e:
-            print(e)
+            logger.error("Erro", e)
 
     def confirm_delete_entries(self):
         try:
@@ -1857,18 +1888,22 @@ class MainWindow(QMainWindow, BancoSQLite):
                 else:
                     QMessageBox.warning(self, "Senha inválida", "A senha informada está incorreta!")
         except Exception as e:
-            QMessageBox.critical(self, "Erro de Processamento", f"Erro ao processar alteração: {str(e)}")
+            logger.error("Erro", e)
 
-    def update_table_ponto(self, table, date_widget):
+    def update_table_ponto(self, table, date_widget, employee_widget):
         """
-        Atualiza a tabela de ponto com os dados filtrados pela data.
+        Atualiza a tabela de ponto com os dados filtrados pela data e pelo funcionário.
         """
         try:
             # Obter mês/ano selecionado
             date_filter = date_widget.date().toString("MM/yyyy")
 
-            # Buscar dados de ponto
-            registros = self.visualiza_ponto(date_filter)
+            # Obter funcionário selecionado
+            employee_text = employee_widget.currentText()  # Exemplo: "123 - João Silva"
+            employee_id = employee_text.split(" - ")[0]  # Pegando apenas o código
+
+            # Buscar dados de ponto filtrados por data e funcionário
+            registros = self.visualiza_ponto_filtro(date_filter, employee_id)
 
             # Limpar tabela atual
             table.setRowCount(0)
@@ -1891,7 +1926,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                     QTableWidgetItem(saida)
                 ]
 
-                # Definir cores
+                # Definir cores para horários vazios
                 for i, item in enumerate(itens[3:]):  # Apenas colunas de horário
                     if item.text() == "00:00:00":
                         item.setBackground(QColor("#ffcccc"))  # Vermelho claro
@@ -1903,7 +1938,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                     table.setItem(row, col, item)
 
             # Mostrar mensagem com quantidade de registros
-            print(f"Tabela atualizada com {len(registros)} registros para {date_filter}")
+            print(f"Tabela atualizada com {len(registros)} registros para {date_filter} e funcionário {employee_id}")
 
         except Exception as e:
             logger.error(f"Erro ao atualizar tabela: {str(e)}")
@@ -1960,7 +1995,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                                                  tipo=p["tipo"],
                                                  codigo_empresa=codigo_empresa)
 
-            self.update_table_ponto(self.view_table, self.view_date)
+            self.update_table_ponto(self.view_table, self.view_date, self.filtra_funcionario)
             # Mensagem de sucesso
             QMessageBox.information(
                 self,
@@ -2025,7 +2060,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                 p for p in registros if data_inicial <= datetime.strptime(p["data"], formato_data) <= data_final]
             return registros_filtrados
         except Exception as e:
-            QMessageBox.critical(self, "Erro de Processamento", f"Erro ao processar alteração: {str(e)}")
+            logger.error("Erro", e)
 
     def _processar_arquivo(self, file_path):
         """
@@ -2075,7 +2110,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                                 registros.append(registro)
                 return registros
             except Exception as e:
-                QMessageBox.critical(self, "Erro de Processamento", f"Erro ao processar alteração: {str(e)}")
+                logger.error("Erro", e)
                 return []
 
     def _parse_line(self, line):
@@ -2113,7 +2148,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                 "valor": valor
             }
         except Exception as e:
-            QMessageBox.critical(self, "Erro de Processamento", f"Erro ao processar alteração: {str(e)}")
+            logger.error("Erro", e)
             return None  # Retorna None em caso de erro
 
     def _processar_arquivo_excel(self, file_path):
@@ -2148,7 +2183,7 @@ class MainWindow(QMainWindow, BancoSQLite):
             )
             return []
         except Exception as e:
-            QMessageBox.critical(self, "Erro de Processamento", f"Erro ao processar alteração: {str(e)}")
+            logger.error("Erro", e)
             return []
 
     def _salvar_registros(self, registros, empresa, formato):
@@ -2342,67 +2377,109 @@ class MainWindow(QMainWindow, BancoSQLite):
             # Tabs para diferentes relatórios
             tabs = QTabWidget()
 
-            # Tab de Horas Trabalhadas
+            #
+            # -------------------------- TAB: Horas Trabalhadas --------------------------
+            #
             hours_tab = QWidget()
             hours_layout = QVBoxLayout(hours_tab)
 
+            # Grupo de Filtros
             hours_filter = QGroupBox("Filtros")
             hours_filter_layout = QFormLayout(hours_filter)
 
+            # ComboBox de Empresa
             hours_company = QComboBox()
-            hours_company.addItems(
-                ["Não desenvolvido 😎"])
+            hours_company.addItem("Não Selecionado")
+            empresas = self.consultar_registros("cadastro_empresa")
+            if empresas:
+                for i in empresas:
+                    codigo = i[0]
+                    nome = i[1]
+                    hours_company.addItem(f"{codigo} - {nome}")
             hours_filter_layout.addRow("Empresa:", hours_company)
 
-            hours_dept = QComboBox()
-            hours_dept.addItems(["Não desenvolvido 😎"])
-            hours_filter_layout.addRow("Departamento:", hours_dept)
-
+            # Data Inicial
             hours_date_from = QDateEdit()
             hours_date_from.setDate(QDate.currentDate().addDays(-30))
             hours_date_from.setCalendarPopup(True)
             hours_filter_layout.addRow("Data Inicial:", hours_date_from)
 
+            # Data Final
             hours_date_to = QDateEdit()
             hours_date_to.setDate(QDate.currentDate())
             hours_date_to.setCalendarPopup(True)
             hours_filter_layout.addRow("Data Final:", hours_date_to)
 
+            # Botão para gerar relatório
             hours_generate = QPushButton("Gerar Relatório")
             hours_filter_layout.addRow("", hours_generate)
 
             hours_layout.addWidget(hours_filter)
 
+            # Tabela de horas
             hours_table = QTableWidget()
-            hours_table.setColumnCount(5)
+            hours_table.setColumnCount(6)
             hours_table.setHorizontalHeaderLabels(
-                ["Funcionário", "Empresa", "Total Horas", "Horas Extras", "Horas Faltantes"])
-
-            # Dados de exemplo
-            sample_hours = [
-                ("Não desenvolvido 😎", "Teste tupla 01", "160:00", "5:30", "0:00"),
-                ("Não desenvolvido 😎", "Teste tupla 02", "158:45", "0:00", "1:15"),
-            ]
-
-            hours_table.setRowCount(len(sample_hours))
-
-            for row, (employee, company, total, extra, missing) in enumerate(sample_hours):
-                hours_table.setItem(row, 0, QTableWidgetItem(employee))
-                hours_table.setItem(row, 1, QTableWidgetItem(company))
-                hours_table.setItem(row, 2, QTableWidgetItem(total))
-
-                extra_item = QTableWidgetItem(extra)
-                if extra != "0:00":
-                    extra_item.setForeground(QColor("#28a745"))
-                hours_table.setItem(row, 3, extra_item)
-
-                missing_item = QTableWidgetItem(missing)
-                if missing != "0:00":
-                    missing_item.setForeground(QColor("#dc3545"))
-                hours_table.setItem(row, 4, missing_item)
-
+                ["Funcionário", "Empresa", "Data", "Total Horas", "Horas Extras", "Horas Faltantes"]
+            )
             hours_layout.addWidget(hours_table)
 
+            # Função local que lê os filtros e atualiza a tabela
+            def generate_hours_report():
+                """
+                Lê os filtros (empresa, data inicial e final), chama a função de cálculo
+                e popula a tabela com os dados retornados.
+                """
+
+                # Verifica a empresa
+                company_code = 0  # se for 'Não Selecionado', mantemos zero (ou outro critério)
+                if hours_company.currentIndex() > 0:
+                    # Exemplo: "3 - Empresa X"
+                    texto_combo = hours_company.currentText()
+                    company_code = int(texto_combo.split(" - ")[0])
+
+                # Formata datas (dd/MM/yyyy, pois parece que a função usa assim)
+                date_from_str = hours_date_from.date().toString("dd/MM/yyyy")
+                date_to_str = hours_date_to.date().toString("dd/MM/yyyy")
+
+                # Chama o método que retorna os dados
+                dados = self.calcular_horas_extras_faltantes_por_empresa(
+                    company_code,
+                    date_from_str,
+                    date_to_str,
+                    False
+                )
+
+                # Preenche a tabela
+                hours_table.setRowCount(len(dados))
+                for row, (nome, empresa_codigo, data, total, extra, faltante) in enumerate(dados):
+                    # Convertendo o código da empresa para string se for numérico
+                    empresa = str(empresa_codigo)
+
+                    hours_table.setItem(row, 0, QTableWidgetItem(nome))
+                    hours_table.setItem(row, 1, QTableWidgetItem(empresa))
+                    hours_table.setItem(row, 2, QTableWidgetItem(data))
+                    hours_table.setItem(row, 3, QTableWidgetItem(total))
+
+                    # Ajuste opcional de largura para a coluna 0 (Funcionário)
+                    hours_table.setColumnWidth(0, 250)
+
+                    # Criando item para horas extras com formatação condicional
+                    extra_item = QTableWidgetItem(extra)
+                    if extra != "00:00":
+                        extra_item.setForeground(QColor("#28a745"))  # Verde
+                    hours_table.setItem(row, 4, extra_item)
+
+                    # Criando item para horas faltantes com formatação condicional
+                    missing_item = QTableWidgetItem(faltante)
+                    if faltante != "00:00":
+                        missing_item.setForeground(QColor("#dc3545"))  # Vermelho
+                    hours_table.setItem(row, 5, missing_item)
+
+            # Conecta o botão para chamar a função local
+            hours_generate.clicked.connect(generate_hours_report)
+
+            # Botões de exportar
             export_buttons = QHBoxLayout()
             export_csv = QPushButton("Exportar CSV")
             export_csv.setStyleSheet("background-color: #6c757d;")
@@ -2420,7 +2497,9 @@ class MainWindow(QMainWindow, BancoSQLite):
 
             hours_layout.addLayout(export_buttons)
 
-            # Tab de Faltas e Atrasos
+            #
+            # -------------------------- TAB: Faltas e Atrasos --------------------------
+            #
             absences_tab = QWidget()
             absences_layout = QVBoxLayout(absences_tab)
 
@@ -2428,8 +2507,7 @@ class MainWindow(QMainWindow, BancoSQLite):
             absences_filter_layout = QFormLayout(absences_filter)
 
             absences_company = QComboBox()
-            absences_company.addItems(
-                ["Não Desenvolvido 😎"])
+            absences_company.addItems(["Não Desenvolvido 😎"])
             absences_filter_layout.addRow("Empresa:", absences_company)
 
             absences_type = QComboBox()
@@ -2454,14 +2532,13 @@ class MainWindow(QMainWindow, BancoSQLite):
             absences_table = QTableWidget()
             absences_table.setColumnCount(5)
             absences_table.setHorizontalHeaderLabels(["Funcionário", "Empresa", "Data", "Tipo", "Observação"])
+            absences_layout.addWidget(absences_table)
 
-            # Dados de exemplo
+            # Exemplo estático para a tabela de faltas
             sample_absences = [
                 ("Não desenvolvido", "Teste 01", "15/02/2025", "Falta", "Atestado médico")
             ]
-
             absences_table.setRowCount(len(sample_absences))
-
             for row, (employee, company, date, absence_type, note) in enumerate(sample_absences):
                 absences_table.setItem(row, 0, QTableWidgetItem(employee))
                 absences_table.setItem(row, 1, QTableWidgetItem(company))
@@ -2478,8 +2555,6 @@ class MainWindow(QMainWindow, BancoSQLite):
                 absences_table.setItem(row, 3, type_item)
                 absences_table.setItem(row, 4, QTableWidgetItem(note))
 
-            absences_layout.addWidget(absences_table)
-
             absences_export = QHBoxLayout()
             absences_csv = QPushButton("Exportar CSV")
             absences_csv.setStyleSheet("background-color: #6c757d;")
@@ -2494,10 +2569,11 @@ class MainWindow(QMainWindow, BancoSQLite):
             absences_export.addWidget(absences_txt)
             absences_export.addWidget(absences_pdf)
             absences_export.addStretch()
-
             absences_layout.addLayout(absences_export)
 
-            # Tab de Relatório de Funcionários
+            #
+            # -------------------------- TAB: Relatório de Funcionários --------------------------
+            #
             employees_tab = QWidget()
             employees_layout = QVBoxLayout(employees_tab)
 
@@ -2505,8 +2581,7 @@ class MainWindow(QMainWindow, BancoSQLite):
             employees_filter_layout = QFormLayout(employees_filter)
 
             employees_report_company = QComboBox()
-            employees_report_company.addItems(
-                ["Não desenvolvido"])
+            employees_report_company.addItems(["Não desenvolvido"])
             employees_filter_layout.addRow("Empresa:", employees_report_company)
 
             employees_report_dept = QComboBox()
@@ -2525,21 +2600,19 @@ class MainWindow(QMainWindow, BancoSQLite):
             employees_report_table = QTableWidget()
             employees_report_table.setColumnCount(7)
             employees_report_table.setHorizontalHeaderLabels(
-                ["Nome", "Empresa", "Departamento", "Cargo", "Data Admissão", "Status", "Jornada"])
+                ["Nome", "Empresa", "Departamento", "Cargo", "Data Admissão", "Status", "Jornada"]
+            )
+            employees_layout.addWidget(employees_report_table)
 
-            # Dados de exemplo
+            # Dados de exemplo para a tabela de funcionários
             sample_employees_report = [
                 ("teste 01", "teste 01", "TI", "Desenvolvedor", "15/01/2023", "Ativo", "40h/semana"),
                 ("teste 01", "teste 01", "RH", "Analista de RH", "05/03/2022", "Ativo", "40h/semana"),
                 ("teste 01", "teste 01.", "Financeiro", "Contador", "22/08/2021", "Férias", "40h/semana"),
-                ("teste 01", "teste 01", "Marketing", "Gerente de Marketing", "10/05/2020", "Ativo",
-                 "40h/semana"),
-                ("teste 01", "teste 01", "Operações", "Supervisor", "03/11/2022", "Afastado",
-                 "44h/semana")
+                ("teste 01", "teste 01", "Marketing", "Gerente de Marketing", "10/05/2020", "Ativo", "40h/semana"),
+                ("teste 01", "teste 01", "Operações", "Supervisor", "03/11/2022", "Afastado", "44h/semana")
             ]
-
             employees_report_table.setRowCount(len(sample_employees_report))
-
             for row, (name, company, dept, position, hire_date, status, workload) in enumerate(sample_employees_report):
                 employees_report_table.setItem(row, 0, QTableWidgetItem(name))
                 employees_report_table.setItem(row, 1, QTableWidgetItem(company))
@@ -2554,11 +2627,9 @@ class MainWindow(QMainWindow, BancoSQLite):
                     status_item.setForeground(QColor("#fd7e14"))
                 elif status == "Afastado":
                     status_item.setForeground(QColor("#dc3545"))
-
                 employees_report_table.setItem(row, 5, status_item)
-                employees_report_table.setItem(row, 6, QTableWidgetItem(workload))
 
-            employees_layout.addWidget(employees_report_table)
+                employees_report_table.setItem(row, 6, QTableWidgetItem(workload))
 
             employees_report_export = QHBoxLayout()
             employees_report_csv = QPushButton("Exportar CSV")
@@ -2574,10 +2645,9 @@ class MainWindow(QMainWindow, BancoSQLite):
             employees_report_export.addWidget(employees_report_txt)
             employees_report_export.addWidget(employees_report_pdf)
             employees_report_export.addStretch()
-
             employees_layout.addLayout(employees_report_export)
 
-            # Adicionar as tabs
+            # Adiciona as tabs ao QTabWidget
             tabs.addTab(hours_tab, "Horas Trabalhadas")
             tabs.addTab(absences_tab, "Faltas e Atrasos")
             tabs.addTab(employees_tab, "Funcionários")
@@ -2585,9 +2655,13 @@ class MainWindow(QMainWindow, BancoSQLite):
             layout.addWidget(tabs)
 
             self.stack.addWidget(reports_widget)
-        except Exception as e:
-            QMessageBox.critical(self, "Erro de Processamento", f"Erro ao exportar Excel: {str(e)}")
 
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Erro de Processamento",
+                f"Erro ao carregar informações dos relatórios: {str(e)}"
+            )
 
     def init_settings_screen(self):
         settings_widget = QWidget()
@@ -2709,22 +2783,72 @@ class MainWindow(QMainWindow, BancoSQLite):
         QMessageBox.information(self, "Importação de Funcionários", "Iniciando importação de funcionários...")
 
     def export_employees(self):
-        file_name, _ = QFileDialog.getSaveFileName(self, "Exportar Funcionários", "",
-                                                   "Arquivos CSV (*.csv);;Arquivos de Texto (*.txt);;Arquivos Excel ("
-                                                   "*.xlsx)")
+        employees_data = self.visualizar_tabela("cadastro_funcionario")
+
+        # Substituir ',' por ';' nos dados
+        dados = [tuple(str(field).replace(',', ';') for field in employee) for employee in employees_data]
+
+        file_name, _ = QFileDialog.getSaveFileName(
+            self, "Exportar Funcionários", "",
+            "Arquivos CSV (*.csv);;Arquivos de Texto (*.txt);;Arquivos Excel (*.xlsx)"
+        )
+
         if file_name:
-            QMessageBox.information(self, "Exportação de Funcionários",
-                                    f"Funcionários exportados com sucesso para {file_name}")
+            try:
+                with open(file_name, mode='w', newline='', encoding='utf-8-sig') as file:
+                    writer = csv.writer(file, delimiter=';')  # Alterado para ponto e vírgula
+
+                    # Escrevendo o cabeçalho
+                    header = ["ID", "NúmeroFolha", "Nome", "CPF", "Data de Admissão", "Estado Civil",
+                              "Endereço", "Empresa", "Setor", "Telefone", "Salário", "Carga Horária",
+                              "Status", "E-mail", "Data de Nascimento", "Gênero", "Observações",
+                              "Criado em", "Atualizado em"]
+                    writer.writerow(header)
+
+                    # Escrevendo os dados
+                    for employee in dados:
+                        writer.writerow(employee)
+
+                QMessageBox.information(self, "Exportação de Funcionários",
+                                        f"Funcionários exportados com sucesso para {file_name}")
+            except Exception as e:
+                QMessageBox.critical(self, "Erro na Exportação",
+                                     f"Ocorreu um erro ao exportar os funcionários: {str(e)}")
 
     def export_companies(self):
-        file_name, _ = QFileDialog.getSaveFileName(self, "Exportar Empresas", "",
-                                                   "Arquivos CSV (*.csv);;Arquivos de Texto (*.txt);;Arquivos Excel ("
-                                                   "*.xlsx)")
+        employees_data = self.visualizar_tabela("cadastro_empresa")
+
+        # Substituir ',' por ';' nos dados
+        dados = [tuple(str(field).replace(',', ';') for field in employee) for employee in employees_data]
+
+        file_name, _ = QFileDialog.getSaveFileName(
+            self, "Exportar Funcionários", "",
+            "Arquivos CSV (*.csv);;Arquivos de Texto (*.txt);;Arquivos Excel (*.xlsx)"
+        )
+
         if file_name:
-            QMessageBox.information(self, "Exportação de Empresas", f"Empresas exportadas com sucesso para {file_name}")
+            try:
+                with open(file_name, mode='w', newline='', encoding='utf-8-sig') as file:
+                    writer = csv.writer(file, delimiter=';')  # Alterado para ponto e vírgula
+
+                    # Escrevendo o cabeçalho
+                    header = ["ID", "Nome", "CNPJ", "Endereço", "Cidade", "Estado",
+                              "Telefone", "Email", "DataCadastro", "DataAlteraçao"
+                              ]
+                    writer.writerow(header)
+
+                    # Escrevendo os dados
+                    for employee in dados:
+                        writer.writerow(employee)
+
+                QMessageBox.information(self, "Exportação de Empresas",
+                                        f"Empresas exportadas com sucesso para {file_name}")
+            except Exception as e:
+                QMessageBox.critical(self, "Erro na Exportação",
+                                     f"Ocorreu um erro ao exportar as Empresas: {str(e)}")
 
     def import_timesheet(self):
-        QMessageBox.information(self, "Importação de Ponto", "Iniciando importação de dados de ponto...")
+        QMessageBox.information(self, "Importação de Ponto", "Ainda não disponível")
 
     def exportar_ponto_sci(self):
         try:
@@ -2759,7 +2883,6 @@ class MainWindow(QMainWindow, BancoSQLite):
 
     def save_settings(self):
         QMessageBox.information(self, "Configurações", "Configurações salvas com sucesso!")
-
 
 
 def main():

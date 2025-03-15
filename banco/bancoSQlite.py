@@ -1,6 +1,7 @@
 import sqlite3
 import os
-from datetime import datetime, timedelta
+import time
+from datetime import timedelta
 from typing import Dict, List, Any, Optional, Union
 from pathlib import Path
 import colorlog
@@ -54,6 +55,9 @@ class BancoSQLite:
 
             self.conn = sqlite3.connect(str(self.db_path))
             self.cursor = self.conn.cursor()
+            self.cache = {}  # Cache para armazenar os dados das tabelas
+            self.cache_timeout = 60  # Tempo máximo do cache (em segundos)
+            self.last_update = {}  # Última atualização do cache
             logger.info(f"Banco de dados inicializado em: {self.db_path}")
             self.criar_tabelas_log_ponto()
             self.cadastro_ponto_alteracao()
@@ -111,7 +115,8 @@ class BancoSQLite:
             return valor.decode('utf-8', 'ignore').strip()
         return valor
 
-    def inserir_ou_atualizar_registro(self, nome_tabela: str, dados: Dict[str, Any], campo_chave: str) -> bool:
+    def inserir_ou_atualizar_registro(self, nome_tabela: str, dados: Dict[str, Any],
+                                      campo_chave: str) -> bool | Exception:
         """
         Insere um novo registro na tabela ou atualiza se já existir.
 
@@ -169,7 +174,8 @@ class BancoSQLite:
 
         except Exception as e:
             logger.error(f"Erro ao inserir/atualizar registro em '{nome_tabela}': {str(e)}")
-            return False
+
+            return e
 
     def atualizar_registro(self, nome_tabela: str, id_registro: int, dados: Dict[str, Any]) -> bool:
         """
@@ -379,59 +385,152 @@ class BancoSQLite:
     from datetime import datetime, timedelta
     from collections import defaultdict
 
-    def calcular_horas_extras_faltantes(self, cpf, data, jornada_diaria=8):
+    def calcular_horas_extras_faltantes_por_empresa(
+            self,
+            empresa,
+            data_inicial,
+            data_final,
+            jornada_diaria=8,
+            usar_jornada_44=False
+    ):
+        import datetime
+        from datetime import timedelta, datetime
+
+        def converter_data_brasileira_para_iso(data_str):
+            # De 'DD/MM/AAAA' para 'AAAA-MM-DD'
+            return datetime.strptime(data_str, "%d/%m/%Y").strftime("%Y-%m-%d")
+
+        # Converte as datas que o usuário passou para o formato 'YYYY-MM-DD'
+        data_inicial_iso = converter_data_brasileira_para_iso(data_inicial)
+        data_final_iso = converter_data_brasileira_para_iso(data_final)
+
         try:
+            # ---------------------------------------
+            # 1. Buscar e montar lista de feriados
+            # ---------------------------------------
+            feriados = set()
+            try:
+                with self.transaction():
+                    query_feriados = """
+                        SELECT data
+                        FROM feriados
+                        WHERE data BETWEEN ? AND ?
+                    """
+                    self.cursor.execute(query_feriados, (data_inicial_iso, data_final_iso))
+                    feriados_bd = self.cursor.fetchall()
+                    feriados = {row[0] for row in feriados_bd}
+            except Exception as e:
+                logger.warning(f"Não foi possível buscar feriados. Erro: {e}")
+                feriados = set()
+
+            # ---------------------------------------
+            # 2. Definir jornadas diárias
+            # ---------------------------------------
+            jornada_por_dia_semana = {
+                0: 8,  # Segunda
+                1: 8,  # Terça
+                2: 8,  # Quarta
+                3: 8,  # Quinta
+                4: 8,  # Sexta
+                5: 4,  # Sábado
+                6: 0,  # Domingo
+            }
+
+            # ---------------------------------------
+            # 3. Buscar registros de ponto no período
+            # ---------------------------------------
             with self.transaction():
-                # Buscar registros do funcionário para a data especificada
                 query = """
-                SELECT timestamp, tipo FROM ponto 
-                WHERE cpf = ? AND timestamp LIKE ?
-                ORDER BY timestamp
+                SELECT 
+                    f.nome,
+                    f.empresa,
+                    substr(p.timestamp, 1, 10) as data_registro,
+                    substr(p.timestamp, 12, 8) as horario,
+                    p.tipo
+                FROM ponto p
+                JOIN cadastro_funcionario f ON p.cpf = f.CPF
+                WHERE f.empresa = ?
+                  AND p.timestamp BETWEEN ? AND ?
+                ORDER BY f.nome, p.timestamp
                 """
-                self.cursor.execute(query, (cpf, f"{data}%"))
+                # Use as datas no formato ISO, condizentes com o que está gravado no BD
+                self.cursor.execute(query, (empresa, data_inicial_iso, data_final_iso))
                 registros = self.cursor.fetchall()
 
                 if not registros:
-                    logger.warning(f"Nenhum registro encontrado para CPF {cpf} em {data}.")
-                    return None
+                    logger.warning(
+                        f"Nenhum registro encontrado para a empresa {empresa} entre {data_inicial_iso} e {data_final_iso}."
+                    )
+                    return []
 
-                # Converter registros para datetime
-                pontos = []
-                for timestamp, tipo in registros:
-                    pontos.append((datetime.fromisoformat(timestamp), tipo))
+                # ---------------------------------------
+                # 4. Agrupar registros por funcionário e data
+                # ---------------------------------------
+                registros_por_funcionario = {}
+                for nome, emp, data_registro, horario, tipo in registros:
+                    chave = (nome, emp, data_registro)
+                    if chave not in registros_por_funcionario:
+                        registros_por_funcionario[chave] = []
+                    registros_por_funcionario[chave].append((horario, tipo))
 
-                # Calcular horas trabalhadas
-                total_trabalhado = timedelta()
-                entrada = None
+                # ---------------------------------------
+                # 5. Processar cada funcionário/dia
+                # ---------------------------------------
+                resultado_final = []
 
-                for horario, tipo in pontos:
-                    if tipo == "entrada":
-                        entrada = horario
-                    elif tipo == "saida" and entrada:
-                        total_trabalhado += (horario - entrada)
-                        entrada = None  # Resetar para próxima entrada
+                for (nome, emp, data_registro), pontos in registros_por_funcionario.items():
+                    trabalhado = timedelta()
+                    entrada = None
 
-                # Converter total para horas
-                horas_trabalhadas = total_trabalhado.total_seconds() / 3600
+                    # Calcular tempo total trabalhado no dia
+                    for horario, tipo in sorted(pontos):
+                        horario_dt = datetime.strptime(horario, "%H:%M:%S")
+                        if tipo == "entrada":
+                            entrada = horario_dt
+                        elif tipo == "saida" and entrada:
+                            trabalhado += (horario_dt - entrada)
+                            entrada = None
 
-                # Calcular horas extras ou faltantes
-                if horas_trabalhadas > jornada_diaria:
-                    horas_extras = horas_trabalhadas - jornada_diaria
-                    horas_faltantes = 0
-                else:
-                    horas_extras = 0
-                    horas_faltantes = jornada_diaria - horas_trabalhadas
+                    # Dia da semana (0=Segunda, 6=Domingo)
+                    dia_semana = datetime.strptime(data_registro, "%Y-%m-%d").weekday()
 
-                return {
-                    "cpf": cpf,
-                    "data": data,
-                    "horas_trabalhadas": round(horas_trabalhadas, 2),
-                    "horas_extras": round(horas_extras, 2),
-                    "horas_faltantes": round(horas_faltantes, 2),
-                }
+                    # Se for feriado, jornada do dia é 0, senão usa a do dicionário
+                    if data_registro in feriados:
+                        jornada_dia = 0
+                    else:
+                        jornada_dia = jornada_por_dia_semana[dia_semana]
+
+                    # Conversões para horas
+                    jornada_td = timedelta(hours=jornada_dia)
+                    horas_trabalhadas = trabalhado.total_seconds() / 3600.0
+
+                    if trabalhado > jornada_td:
+                        extras = trabalhado - jornada_td
+                        faltantes = timedelta()
+                    else:
+                        extras = timedelta()
+                        faltantes = jornada_td - trabalhado
+
+                    # Função de formatação "HH:MM"
+                    def formatar_horas(td):
+                        total_minutos = int(td.total_seconds() // 60)
+                        horas, minutos = divmod(total_minutos, 60)
+                        return f"{horas:02d}:{minutos:02d}"
+
+                    resultado_final.append((
+                        nome,
+                        emp,
+                        data_registro,
+                        formatar_horas(trabalhado),
+                        formatar_horas(extras),
+                        formatar_horas(faltantes)
+                    ))
+
+                return resultado_final
+
         except Exception as e:
-            logger.error(f"Erro ao calcular horas extras/faltantes. {e}")
-            return None
+            logger.error(f"Erro ao calcular horas extras/faltantes por empresa. {e}")
+            return []
 
     def visualiza_ponto(self, mes_ano):
         """
@@ -529,6 +628,108 @@ class BancoSQLite:
             logger.error(f"Erro ao visualizar ponto: {str(e)}")
             return []
 
+    def visualiza_ponto_filtro(self, mes_ano, employee_id=None):
+        """
+        Visualiza os registros de ponto de funcionários para um mês/ano específico.
+        Se employee_id for None ou vazio, retorna os registros de todos os funcionários.
+
+        Formato esperado para mes_ano: 'MM/YYYY' (ex: '02/2025')
+        """
+        try:
+            import datetime
+
+            # Extrair mês e ano e formatar o padrão da data
+            mes, ano = mes_ano.split('/')
+            mes_formatado = mes.zfill(2)
+            padrao = f'{ano}-{mes_formatado}-%'
+
+            # Construir a query base
+            query = """
+                SELECT 
+                    p.id,
+                    f.cpf,
+                    f.nome,
+                    substr(p.timestamp, 1, 10) as data_registro,
+                    substr(p.timestamp, 12, 8) as horario,
+                    p.tipo
+                FROM ponto p
+                JOIN cadastro_funcionario f ON p.cpf = f.CPF
+                WHERE p.timestamp LIKE ?
+            """
+            params = [padrao]
+
+            # Adicionar filtro por funcionário se necessário
+            if employee_id != "Nenhum selecionado":
+                query += " AND f.n_folha = ?"
+                params.append(employee_id)
+
+            query += " ORDER BY f.nome, p.timestamp"
+
+            # Executar consulta
+            self.cursor.execute(query, params)
+            registros_brutos = self.cursor.fetchall()
+
+            if not registros_brutos:
+                logger.warning(f"Nenhum registro de ponto encontrado para {mes_ano}.")
+                return []
+
+            # Agrupar registros por (CPF, nome, data)
+            registros_por_pessoa_dia = {}
+            for ponto_id, CPF, nome, data_registro, horario, tipo in registros_brutos:
+                chave = (CPF, nome, data_registro)
+                if chave not in registros_por_pessoa_dia:
+                    registros_por_pessoa_dia[chave] = []
+                registros_por_pessoa_dia[chave].append((horario, tipo, ponto_id))
+
+            # Função auxiliar para converter string para objeto time
+            def str_to_time(t_str):
+                return datetime.datetime.strptime(t_str, "%H:%M:%S").time()
+
+            # Função que seleciona o registro do tipo esperado cuja distância para o horário alvo seja mínima
+            def seleciona_registro(registros, target_time, expected_type):
+                candidatos = [r for r in registros if r[1] == expected_type]
+                if not candidatos:
+                    return "00:00:00"
+                return min(
+                    candidatos,
+                    key=lambda r: abs(datetime.datetime.combine(datetime.date.today(), str_to_time(r[0])) -
+                                      datetime.datetime.combine(datetime.date.today(), target_time))
+                )[0]
+
+            resultado = []
+            for (CPF, nome, data_registro), registros in registros_por_pessoa_dia.items():
+                # Separar registros em manhã e tarde com base no horário
+                registros_manha = [r for r in registros if r[0] < '13:00:00']
+                registros_tarde = [r for r in registros if r[0] >= '13:00:00']
+
+                # Seleciona os cliques mais próximos dos horários de referência
+                entrada_manha = seleciona_registro(registros_manha, datetime.time(8, 0, 0), 'entrada')
+                saida_manha = seleciona_registro(registros_manha, datetime.time(12, 0, 0), 'saida')
+                entrada_tarde = seleciona_registro(registros_tarde, datetime.time(13, 0, 0), 'entrada')
+                saida_tarde = seleciona_registro(registros_tarde, datetime.time(18, 0, 0), 'saida')
+
+                # Converter a data para o formato DD/MM/YYYY
+                if '-' in data_registro:
+                    ano_db, mes_db, dia_db = data_registro.split('-')
+                    data_formatada = f"{dia_db}/{mes_db}/{ano_db}"
+                else:
+                    data_formatada = data_registro  # Caso a data já esteja formatada
+
+                resultado.append((CPF, nome, data_formatada, entrada_manha, saida_manha, entrada_tarde, saida_tarde))
+
+            # Ordenar o resultado por data e nome corretamente
+            resultado.sort(key=lambda x: (
+                datetime.datetime.strptime(x[2], '%d/%m/%Y'),  # Ordenação pela data correta
+                x[1]  # Ordenação pelo nome
+            ))
+
+            print(f"Encontrados {len(resultado)} registros de ponto para {mes_ano}.")
+            return resultado
+
+        except Exception as e:
+            logger.error(f"Erro ao visualizar ponto: {str(e)}")
+            return []
+
     def exporta_ponto_periodo(self, data_inicio, data_fim):
         """
         Exporta os registros de ponto para um período específico, informando as datas separadamente.
@@ -559,7 +760,7 @@ class BancoSQLite:
             # Consulta unindo as tabelas ponto, cadastro_funcionario e cadastro_empresa
             query = """
                 SELECT 
-                    e.id as empresa_id,
+                    f.n_folha,
                     f.pis_pasep,
                     f.CPF as cpf,
                     substr(p.timestamp, 1, 10) as data_registro,
@@ -580,8 +781,8 @@ class BancoSQLite:
 
             # Agrupa os registros por (empresa_id, pis_pasep, cpf, data_registro)
             registros_por_registro = {}
-            for empresa_id, pis, cpf, data_registro, horario, tipo in registros_brutos:
-                chave = (empresa_id, pis, cpf, data_registro)
+            for n_folha, pis, cpf, data_registro, horario, tipo in registros_brutos:
+                chave = (n_folha, pis, cpf, data_registro)
                 if chave not in registros_por_registro:
                     registros_por_registro[chave] = []
                 registros_por_registro[chave].append((horario, tipo))
@@ -748,8 +949,6 @@ class BancoSQLite:
             logger.error(f"Erro ao registrar alteração: {str(e)}")
             return False
 
-
-
     def visualizar_historico_alteracoes(self, cpf=None, data_inicio=None, data_fim=None):
         """
         Retorna o histórico de alterações de ponto.
@@ -789,6 +988,41 @@ class BancoSQLite:
             logger.error(f"Erro ao buscar histórico de alterações: {str(e)}")
             return []
 
+    def visualizar_tabela(self, nome_tabela):
+        """
+        Obtém os dados de uma tabela específica, utilizando cache para otimizar a performance.
+
+        Args:
+            nome_tabela (str): Nome da tabela a ser consultada.
+
+        Returns:
+            list: Lista de tuplas contendo os dados da tabela.
+        """
+        tempo_atual = time.time()
+
+        # Se a tabela já está no cache e ainda é válida, retorna os dados sem acessar o banco
+        if nome_tabela in self.cache and (tempo_atual - self.last_update[nome_tabela]) < self.cache_timeout:
+            print(f"🔄 Usando cache para {nome_tabela}")
+            return self.cache[nome_tabela]
+
+        print(f"⚡ Consultando banco de dados para {nome_tabela}")
+
+        try:
+            with self.transaction():  # Usa o gerenciador de transações
+                cursor = self.conn.cursor()
+                cursor.execute(f"SELECT * FROM {nome_tabela}")
+                dados = cursor.fetchall()
+
+            # Atualiza o cache
+            self.cache[nome_tabela] = dados
+            self.last_update[nome_tabela] = tempo_atual
+
+            return dados
+
+        except sqlite3.Error as e:
+            print(f"❌ Erro ao consultar a tabela {nome_tabela}: {e}")
+            return None
+
     def deleta_todos_dados(self, tabela):
         try:
             query = f"DELETE FROM {tabela};"
@@ -799,3 +1033,9 @@ class BancoSQLite:
         except Exception as e:
             logger.error(f"Erro ao atualizar registro : {str(e)}")
             return False
+
+db = BancoSQLite()
+dados = db.calcular_horas_extras_faltantes_por_empresa(3, "01/02/2025", "31/03/2025", True)
+
+for i in dados:
+    print(i)
