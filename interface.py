@@ -5,14 +5,15 @@ import sys
 from collections import defaultdict
 from datetime import datetime
 
-from PyQt6.QtCore import Qt, QDate, QSize
-from PyQt6.QtGui import QColor, QAction, QShortcut, QKeySequence
+from PyQt6.QtCore import Qt, QDate, QSize, QRectF
+from PyQt6.QtGui import QColor, QAction, QShortcut, QKeySequence, QPainter, QFont, QPageLayout, QFontMetrics
+from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QLineEdit, QFormLayout,
                              QDateEdit, QComboBox, QTableWidget, QTableWidgetItem, QFileDialog,
                              QGroupBox, QStackedWidget,
                              QCheckBox, QSpinBox, QMessageBox, QRadioButton, QToolBar, QGridLayout, QDialog,
-                             QInputDialog)
+                             QInputDialog, QHeaderView, QTextEdit, QDialogButtonBox)
 from banco.bancoSQlite import BancoSQLite, logger
 
 from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem, QMessageBox
@@ -1316,119 +1317,123 @@ class MainWindow(QMainWindow, BancoSQLite):
             QMessageBox.critical(self, "Erro", f"Ocorreu um erro ao abrir o formulário: {e}")
 
     def salva_funcionario(self):
-        try:
-            # Define a ordem das colunas conforme a estrutura da tabela
-            # Recupera os valores dos widgets do formulário
-            n_folha = self.num_folha.text()
-            nome = self.name_func.text()
-            cpf = self.cpf.text()
-            # Obtém a data no formato desejado (por exemplo, "yyyy-MM-dd")
-            data_admissao = self.data_adimissap.date().toString("yyyy-MM-dd")
-            estado_civil = self.estado_civil.currentText()
-            telefone = self.telefone.text()
+                """
+                Saves the employee data from the form to the database.
 
-            # Para o campo empresa, o QComboBox exibe "código - nome".
-            # Separa apenas o código (assumindo que seja numérico)
-            empresa_str = self.empresa_func.currentText()
+                This method retrieves the values from the form fields, validates them, and inserts or updates the employee record in the database.
+                """
+                try:
+                    # Define the column order according to the table structure
+                    # Retrieve values from the form widgets
+                    n_folha = self.num_folha.text()
+                    nome = self.name_func.text()
+                    cpf = self.cpf.text()
+                    # Get the date in the desired format (e.g., "yyyy-MM-dd")
+                    data_admissao = self.data_adimissap.date().toString("yyyy-MM-dd")
+                    estado_civil = self.estado_civil.currentText()
+                    telefone = self.telefone.text()
 
-            if " - " in empresa_str:
-                empresa_codigo = empresa_str.split(" - ")[0].strip()
-                print(empresa_codigo)
-            else:
-                empresa_codigo = ""
+                    # For the company field, the QComboBox displays "code - name".
+                    # Separate only the code (assuming it is numeric)
+                    empresa_str = self.empresa_func.currentText()
 
-            departamento = self.department.currentText()
-            cargo = self.cargo.text()
-            salario = self.salario.text()
-            jornada_trabalho = self.jornada_trabalho.currentText()
-            status = self.status.currentText()
-            pis_pasep = self.pis.text()
-            ctps = self.ctps.text()
-            banco = self.banco.currentText()
-            contabancaria = self.conta.text()
+                    if " - " in empresa_str:
+                        empresa_codigo = empresa_str.split(" - ")[0].strip()
+                        print(empresa_codigo)
+                    else:
+                        empresa_codigo = ""
 
-            # Define a estrutura da tabela em um dicionário
-            estrutura_funcionario = {
-                "n_folha": "INTEGER UNIQUE NOT NULL",
-                "nome": "TEXT NOT NULL",
-                "CPF": "TEXT UNIQUE NOT NULL",
-                "data_admissao": "TEXT",
-                "estado_civil": "TEXT",
-                "telefone": "TEXT",
-                "empresa": "INTEGER",
-                "departamento": "TEXT",
-                "cargo": "TEXT",
-                "salario": "REAL",
-                "jornada_trabalho": "TEXT",
-                "status": "TEXT",
-                "pis_pasep": "TEXT",
-                "ctps": "TEXT",
-                "banco": "TEXT",
-                "contabancaria": "TEXT"
-            }
+                    departamento = self.department.currentText()
+                    cargo = self.cargo.text()
+                    salario = self.salario.text()
+                    jornada_trabalho = self.jornada_trabalho.currentText()
+                    status = self.status.currentText()
+                    pis_pasep = self.pis.text()
+                    ctps = self.ctps.text()
+                    banco = self.banco.currentText()
+                    contabancaria = self.conta.text()
 
-            # Cria a tabela "cadastro_funcionario", se necessário
-            self.criar_tabela("cadastro_funcionario", estrutura_funcionario)
-            self.cadastro_ponto()  # Cria a tabela ponto que vai usar FK da cadastro_funcionario
+                    # Define the table structure in a dictionary
+                    estrutura_funcionario = {
+                        "n_folha": "INTEGER UNIQUE NOT NULL",
+                        "nome": "TEXT NOT NULL",
+                        "CPF": "TEXT UNIQUE NOT NULL",
+                        "data_admissao": "TEXT",
+                        "estado_civil": "TEXT",
+                        "telefone": "TEXT",
+                        "empresa": "INTEGER",
+                        "departamento": "TEXT",
+                        "cargo": "TEXT",
+                        "salario": "REAL",
+                        "jornada_trabalho": "TEXT",
+                        "status": "TEXT",
+                        "pis_pasep": "TEXT",
+                        "ctps": "TEXT",
+                        "banco": "TEXT",
+                        "contabancaria": "TEXT"
+                    }
 
-            # Cria o dicionário com os dados a serem inseridos
-            dados = {
-                "n_folha": int(n_folha) if n_folha.isdigit() else None,
-                "nome": nome,
-                "CPF": cpf,
-                "data_admissao": data_admissao,
-                "estado_civil": estado_civil,
-                "telefone": telefone,
-                "empresa": int(empresa_codigo) if empresa_codigo.isdigit() else None,
-                "departamento": departamento,
-                "cargo": cargo,
-                "salario": float(salario) if salario.replace(".", "", 1).isdigit() else 0.0,
-                "jornada_trabalho": jornada_trabalho,
-                "status": status,
-                "pis_pasep": pis_pasep,
-                "ctps": ctps,
-                "banco": banco,
-                "contabancaria": contabancaria
-            }
+                    # Create the "cadastro_funcionario" table if necessary
+                    self.criar_tabela("cadastro_funcionario", estrutura_funcionario)
+                    self.cadastro_ponto()  # Create the "ponto" table that will use FK from "cadastro_funcionario"
 
-            # Valida os campos obrigatórios
-            if not n_folha.strip():
-                raise ValueError("O N° Folha é obrigatório e deve ser numérico.")
-            if not nome.strip():
-                raise ValueError("O nome é obrigatório.")
-            if not cpf.strip():
-                raise ValueError("O CPF é obrigatório.")
-            if not empresa_codigo.strip():
-                raise ValueError("O Código da empresa é obrigatório")
+                    # Create a dictionary with the data to be inserted
+                    dados = {
+                        "n_folha": int(n_folha) if n_folha.isdigit() else None,
+                        "nome": nome,
+                        "CPF": cpf,
+                        "data_admissao": data_admissao,
+                        "estado_civil": estado_civil,
+                        "telefone": telefone,
+                        "empresa": int(empresa_codigo) if empresa_codigo.isdigit() else None,
+                        "departamento": departamento,
+                        "cargo": cargo,
+                        "salario": float(salario) if salario.replace(".", "", 1).isdigit() else 0.0,
+                        "jornada_trabalho": jornada_trabalho,
+                        "status": status,
+                        "pis_pasep": pis_pasep,
+                        "ctps": ctps,
+                        "banco": banco,
+                        "contabancaria": contabancaria
+                    }
 
-            # Insere ou atualiza o registro no banco de dados.
-            # Neste exemplo, estamos usando o CPF como chave única.
-            retorno = self.inserir_ou_atualizar_registro("cadastro_funcionario", dados, cpf)
-            print(retorno)
-            if retorno:
-                if "UNIQUE" in retorno:
-                    QMessageBox.critical(self, "Erro", f"O número da folha já existe no banco!")
-                elif retorno:
-                    print("Deu certo")
-                elif "cadastro_funcionario.n_folha" in retorno:
-                    QMessageBox.critical(self, "Erro",
-                                         f"Verifique se está inforado o número da folha em outro funcionário!\n{retorno}")
+                    # Validate required fields
+                    if not n_folha.strip():
+                        raise ValueError("O N° Folha é obrigatório e deve ser numérico.")
+                    if not nome.strip():
+                        raise ValueError("O nome é obrigatório.")
+                    if not cpf.strip():
+                        raise ValueError("O CPF é obrigatório.")
+                    if not empresa_codigo.strip():
+                        raise ValueError("O Código da empresa é obrigatório")
 
-            # Caso exista um método para atualizar a visualização dos funcionários
-            if hasattr(self, "load_employees_data"):
-                self.load_employees_data()
+                    # Insert or update the record in the database.
+                    # In this example, we are using the CPF as a unique key.
+                    retorno = self.inserir_ou_atualizar_registro("cadastro_funcionario", dados, cpf)
+                    print(retorno)
+                    if retorno:
+                        if "UNIQUE" in retorno:
+                            QMessageBox.critical(self, "Erro", f"O número da folha já existe no banco!")
+                        elif retorno:
+                            print("Deu certo")
+                        elif "cadastro_funcionario.n_folha" in retorno:
+                            QMessageBox.critical(self, "Erro",
+                                                 f"Verifique se está inforado o número da folha em outro funcionário!\n{retorno}")
 
-            # self.load_employees_data()
-            logger.info("Funcionário cadastrado com sucesso!")
-        except Exception as e:
-            logger.warning(f"Ocorreu um problema ao cadastrar o funcionário: {e}")  # Altera de error para warning
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Icon.Warning)  # Ícone de aviso (exclamação)
-            msg.setWindowTitle("Atenção")
-            msg.setText(f"Número da folha do funcionário já existente!\nVerifique se o funcionário já está cadastrado!"
-                        f"\nErro: {e}")
-            msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-            msg.exec()
+                    # If there is a method to update the employee view
+                    if hasattr(self, "load_employees_data"):
+                        self.load_employees_data()
+
+                    logger.info("Funcionário cadastrado com sucesso!")
+                except Exception as e:
+                    logger.warning(f"Ocorreu um problema ao cadastrar o funcionário: {e}")  # Change from error to warning
+                    msg = QMessageBox()
+                    msg.setIcon(QMessageBox.Icon.Warning)  # Warning icon (exclamation mark)
+                    msg.setWindowTitle("Atenção")
+                    msg.setText(f"Número da folha do funcionário já existente!\nVerifique se o funcionário já está cadastrado!"
+                                f"\nErro: {e}")
+                    msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+                    msg.exec()
 
     def excluir_funcionario(self, company_id):
         """
@@ -2364,22 +2369,17 @@ class MainWindow(QMainWindow, BancoSQLite):
             raise
 
     # ------------------------------------ Relatórios --------------------------------------------------
+
     def init_reports_screen(self):
         try:
             reports_widget = QWidget()
             layout = QVBoxLayout(reports_widget)
-
             # Título
             title = QLabel("Relatórios")
             title.setStyleSheet("font-size: 20px; font-weight: bold; color: #343a40; margin-bottom: 20px;")
             layout.addWidget(title)
-
             # Tabs para diferentes relatórios
             tabs = QTabWidget()
-
-            #
-            # -------------------------- TAB: Horas Trabalhadas --------------------------
-            #
             hours_tab = QWidget()
             hours_layout = QVBoxLayout(hours_tab)
 
@@ -2403,19 +2403,15 @@ class MainWindow(QMainWindow, BancoSQLite):
             hours_date_from.setDate(QDate.currentDate().addDays(-30))
             hours_date_from.setCalendarPopup(True)
             hours_filter_layout.addRow("Data Inicial:", hours_date_from)
-
             # Data Final
             hours_date_to = QDateEdit()
             hours_date_to.setDate(QDate.currentDate())
             hours_date_to.setCalendarPopup(True)
             hours_filter_layout.addRow("Data Final:", hours_date_to)
-
             # Botão para gerar relatório
             hours_generate = QPushButton("Gerar Relatório")
             hours_filter_layout.addRow("", hours_generate)
-
             hours_layout.addWidget(hours_filter)
-
             # Tabela de horas
             hours_table = QTableWidget()
             hours_table.setColumnCount(6)
@@ -2423,237 +2419,351 @@ class MainWindow(QMainWindow, BancoSQLite):
                 ["Funcionário", "Empresa", "Data", "Total Horas", "Horas Extras", "Horas Faltantes"]
             )
             hours_layout.addWidget(hours_table)
+            # Configurar a coluna 0 ("Funcionário") para se expandir com a tela
+            header = hours_table.horizontalHeader()
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
 
             # Função local que lê os filtros e atualiza a tabela
             def generate_hours_report():
-                """
-                Lê os filtros (empresa, data inicial e final), chama a função de cálculo
-                e popula a tabela com os dados retornados.
-                """
-
                 # Verifica a empresa
-                company_code = 0  # se for 'Não Selecionado', mantemos zero (ou outro critério)
+                company_code = 0  # Se "Não Selecionado", mantém 0
                 if hours_company.currentIndex() > 0:
-                    # Exemplo: "3 - Empresa X"
                     texto_combo = hours_company.currentText()
                     company_code = int(texto_combo.split(" - ")[0])
-
-                # Formata datas (dd/MM/yyyy, pois parece que a função usa assim)
                 date_from_str = hours_date_from.date().toString("dd/MM/yyyy")
                 date_to_str = hours_date_to.date().toString("dd/MM/yyyy")
-
-                # Chama o método que retorna os dados
                 dados = self.calcular_horas_extras_faltantes_por_empresa(
                     company_code,
                     date_from_str,
                     date_to_str,
                     False
                 )
-
-                # Preenche a tabela
                 hours_table.setRowCount(len(dados))
                 for row, (nome, empresa_codigo, data, total, extra, faltante) in enumerate(dados):
-                    # Convertendo o código da empresa para string se for numérico
                     empresa = str(empresa_codigo)
-
                     hours_table.setItem(row, 0, QTableWidgetItem(nome))
                     hours_table.setItem(row, 1, QTableWidgetItem(empresa))
                     hours_table.setItem(row, 2, QTableWidgetItem(data))
                     hours_table.setItem(row, 3, QTableWidgetItem(total))
-
-                    # Ajuste opcional de largura para a coluna 0 (Funcionário)
                     hours_table.setColumnWidth(0, 250)
-
-                    # Criando item para horas extras com formatação condicional
                     extra_item = QTableWidgetItem(extra)
                     if extra != "00:00":
-                        extra_item.setForeground(QColor("#28a745"))  # Verde
+                        extra_item.setForeground(QColor("#28a745"))
                     hours_table.setItem(row, 4, extra_item)
-
-                    # Criando item para horas faltantes com formatação condicional
                     missing_item = QTableWidgetItem(faltante)
                     if faltante != "00:00":
-                        missing_item.setForeground(QColor("#dc3545"))  # Vermelho
+                        missing_item.setForeground(QColor("#dc3545"))
                     hours_table.setItem(row, 5, missing_item)
 
-            # Conecta o botão para chamar a função local
             hours_generate.clicked.connect(generate_hours_report)
 
-            # Botões de exportar
+            # Função para exportar para CSV
+            def export_to_csv():
+                if hours_table.rowCount() == 0:
+                    QMessageBox.warning(self, "Aviso", "Não há dados para exportar.")
+                    return
+                file_path, _ = QFileDialog.getSaveFileName(
+                    self, "Salvar arquivo CSV", "", "Arquivos CSV (*.csv);;Todos os arquivos (*)"
+                )
+                if file_path:
+                    try:
+                        with open(file_path, 'w', newline='', encoding='utf-8') as file:
+                            writer = csv.writer(file, delimiter=';')
+                            headers = [hours_table.horizontalHeaderItem(col).text() for col in
+                                       range(hours_table.columnCount())]
+                            writer.writerow(headers)
+                            for row in range(hours_table.rowCount()):
+                                row_data = []
+                                for col in range(hours_table.columnCount()):
+                                    item = hours_table.item(row, col)
+                                    row_data.append(item.text() if item is not None else "")
+                                writer.writerow(row_data)
+                        QMessageBox.information(self, "Sucesso", f"Dados exportados com sucesso para {file_path}")
+                    except Exception as e:
+                        QMessageBox.critical(self, "Erro", f"Erro ao exportar para CSV: {str(e)}")
+
+            def print_report():
+                if hours_table.rowCount() == 0:
+                    QMessageBox.warning(self, "Aviso", "Não há dados para imprimir.")
+                    return
+                try:
+                    printer = QPrinter()
+                    print_dialog = QPrintDialog(printer, self)
+                    if print_dialog.exec() > 0:
+                        painter = QPainter()
+                        if not painter.begin(printer):
+                            raise Exception("Falha ao iniciar o processo de impressão.")
+
+                        # Aplicar um fator de escala para ampliar a tabela
+                        scale_factor = 1.2  # Aumenta 20%
+                        painter.scale(scale_factor, scale_factor)
+
+                        # Configurações de fontes
+                        title_font = QFont("Arial", 14, QFont.Weight.Bold)
+                        header_font = QFont("Arial", 8, QFont.Weight.Bold)
+                        row_font = QFont("Arial", 8)
+
+                        # Obter a área imprimível (em pontos)
+                        page_rect = printer.pageLayout().paintRect(QPageLayout.Unit.Point)
+                        # Reduzir as margens para usar mais espaço da folha (valores ajustados para a escala)
+                        x_margin = 20
+                        y_margin = 20
+                        current_y = y_margin
+
+                        # Imprimir título do relatório (centralizado)
+                        painter.setFont(title_font)
+                        title_text = "RELATÓRIO DE HORAS TRABALHADAS"
+                        title_rect = QRectF(x_margin, current_y, page_rect.width() - 2 * x_margin, 30)
+                        painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, title_text)
+                        current_y += 40
+
+                        # Imprimir informações dos filtros
+                        painter.setFont(row_font)
+                        data_inicial = hours_date_from.date().toString("dd/MM/yyyy")
+                        data_final = hours_date_to.date().toString("dd/MM/yyyy")
+                        filtro_text = f"Período: {data_inicial} a {data_final}"
+                        painter.drawText(int(x_margin), int(current_y), filtro_text)
+                        current_y += 20
+                        empresa_texto = hours_company.currentText()
+                        painter.drawText(int(x_margin), int(current_y), f"Empresa: {empresa_texto}")
+                        current_y += 30
+
+                        # Configurar tabela com pesos para as colunas (usando a largura da área disponível)
+                        num_cols = hours_table.columnCount()
+                        # Por exemplo, manter a coluna "Funcionário" com peso 2 e as demais com peso 1
+                        weights = [2] + [1] * (num_cols - 1)
+                        total_weight = sum(weights)
+                        table_width = page_rect.width() - 2 * x_margin
+
+                        header_metrics = QFontMetrics(header_font)
+                        header_height = header_metrics.height() + 10
+                        row_metrics = QFontMetrics(row_font)
+                        row_height = row_metrics.height() + 8
+
+                        def print_table_header(y):
+                            painter.setFont(header_font)
+                            current_x = x_margin
+                            for col in range(num_cols):
+                                col_width = (weights[col] / total_weight) * table_width
+                                header_text = hours_table.horizontalHeaderItem(col).text()
+                                rect = QRectF(current_x, y, col_width, header_height)
+                                painter.drawRect(rect)
+                                painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, header_text)
+                                current_x += col_width
+                            return y + header_height
+
+                        current_y = print_table_header(current_y)
+                        painter.setFont(row_font)
+
+                        # Imprimir as linhas da tabela
+                        for row in range(hours_table.rowCount()):
+                            if current_y + row_height > page_rect.height() - y_margin:
+                                printer.newPage()
+                                current_y = y_margin
+                                current_y = print_table_header(current_y)
+                                painter.setFont(row_font)
+                            current_x = x_margin
+                            for col in range(num_cols):
+                                col_width = (weights[col] / total_weight) * table_width
+                                rect = QRectF(current_x, current_y, col_width, row_height)
+                                painter.drawRect(rect)
+                                item = hours_table.item(row, col)
+                                text = item.text() if item is not None else ""
+                                painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
+                                current_x += col_width
+                            current_y += row_height
+
+                        # Rodapé com data de impressão
+                        current_y += 20
+                        footer_text = f"Data de impressão: {QDate.currentDate().toString('dd/MM/yyyy')}"
+                        painter.drawText(int(x_margin), int(current_y), footer_text)
+                        painter.end()
+                        QMessageBox.information(self, "Sucesso", "Relatório enviado para impressão.")
+                except Exception as e:
+                    QMessageBox.critical(self, "Erro", f"Erro ao imprimir relatório: {str(e)}")
+
+            # Botões de exportar e imprimir
             export_buttons = QHBoxLayout()
+            print_button = QPushButton("Imprimir")
+            print_button.setStyleSheet("background-color: #17a2b8;")
+            print_button.clicked.connect(print_report)
             export_csv = QPushButton("Exportar CSV")
-            export_csv.setStyleSheet("background-color: #6c757d;")
-
-            export_txt = QPushButton("Exportar TXT")
-            export_txt.setStyleSheet("background-color: #6c757d;")
-
-            export_pdf = QPushButton("Exportar PDF")
-            export_pdf.setStyleSheet("background-color: #6c757d;")
-
+            export_csv.setStyleSheet("background-color: #17a2b8;")
+            export_csv.clicked.connect(export_to_csv)
+            export_buttons.addWidget(print_button)
             export_buttons.addWidget(export_csv)
-            export_buttons.addWidget(export_txt)
-            export_buttons.addWidget(export_pdf)
             export_buttons.addStretch()
-
             hours_layout.addLayout(export_buttons)
-
-            #
-            # -------------------------- TAB: Faltas e Atrasos --------------------------
-            #
-            absences_tab = QWidget()
-            absences_layout = QVBoxLayout(absences_tab)
-
-            absences_filter = QGroupBox("Filtros")
-            absences_filter_layout = QFormLayout(absences_filter)
-
-            absences_company = QComboBox()
-            absences_company.addItems(["Não Desenvolvido 😎"])
-            absences_filter_layout.addRow("Empresa:", absences_company)
-
-            absences_type = QComboBox()
-            absences_type.addItems(["Todos os tipos", "Faltas", "Atrasos", "Saídas antecipadas"])
-            absences_filter_layout.addRow("Tipo:", absences_type)
-
-            absences_date_from = QDateEdit()
-            absences_date_from.setDate(QDate.currentDate().addDays(-30))
-            absences_date_from.setCalendarPopup(True)
-            absences_filter_layout.addRow("Data Inicial:", absences_date_from)
-
-            absences_date_to = QDateEdit()
-            absences_date_to.setDate(QDate.currentDate())
-            absences_date_to.setCalendarPopup(True)
-            absences_filter_layout.addRow("Data Final:", absences_date_to)
-
-            absences_generate = QPushButton("Gerar Relatório")
-            absences_filter_layout.addRow("", absences_generate)
-
-            absences_layout.addWidget(absences_filter)
-
-            absences_table = QTableWidget()
-            absences_table.setColumnCount(5)
-            absences_table.setHorizontalHeaderLabels(["Funcionário", "Empresa", "Data", "Tipo", "Observação"])
-            absences_layout.addWidget(absences_table)
-
-            # Exemplo estático para a tabela de faltas
-            sample_absences = [
-                ("Não desenvolvido", "Teste 01", "15/02/2025", "Falta", "Atestado médico")
-            ]
-            absences_table.setRowCount(len(sample_absences))
-            for row, (employee, company, date, absence_type, note) in enumerate(sample_absences):
-                absences_table.setItem(row, 0, QTableWidgetItem(employee))
-                absences_table.setItem(row, 1, QTableWidgetItem(company))
-                absences_table.setItem(row, 2, QTableWidgetItem(date))
-
-                type_item = QTableWidgetItem(absence_type)
-                if absence_type == "Falta":
-                    type_item.setForeground(QColor("#dc3545"))
-                elif absence_type == "Atraso":
-                    type_item.setForeground(QColor("#fd7e14"))
-                else:
-                    type_item.setForeground(QColor("#6c757d"))
-
-                absences_table.setItem(row, 3, type_item)
-                absences_table.setItem(row, 4, QTableWidgetItem(note))
-
-            absences_export = QHBoxLayout()
-            absences_csv = QPushButton("Exportar CSV")
-            absences_csv.setStyleSheet("background-color: #6c757d;")
-
-            absences_txt = QPushButton("Exportar TXT")
-            absences_txt.setStyleSheet("background-color: #6c757d;")
-
-            absences_pdf = QPushButton("Exportar PDF")
-            absences_pdf.setStyleSheet("background-color: #6c757d;")
-
-            absences_export.addWidget(absences_csv)
-            absences_export.addWidget(absences_txt)
-            absences_export.addWidget(absences_pdf)
-            absences_export.addStretch()
-            absences_layout.addLayout(absences_export)
-
-            #
-            # -------------------------- TAB: Relatório de Funcionários --------------------------
-            #
-            employees_tab = QWidget()
-            employees_layout = QVBoxLayout(employees_tab)
-
-            employees_filter = QGroupBox("Filtros")
-            employees_filter_layout = QFormLayout(employees_filter)
-
-            employees_report_company = QComboBox()
-            employees_report_company.addItems(["Não desenvolvido"])
-            employees_filter_layout.addRow("Empresa:", employees_report_company)
-
-            employees_report_dept = QComboBox()
-            employees_report_dept.addItems(["Não Desenvolvido"])
-            employees_filter_layout.addRow("Departamento:", employees_report_dept)
-
-            employees_report_status = QComboBox()
-            employees_report_status.addItems(["Todos", "Ativo", "Inativo", "Férias", "Afastado"])
-            employees_filter_layout.addRow("Status:", employees_report_status)
-
-            employees_report_generate = QPushButton("Gerar Relatório")
-            employees_filter_layout.addRow("", employees_report_generate)
-
-            employees_layout.addWidget(employees_filter)
-
-            employees_report_table = QTableWidget()
-            employees_report_table.setColumnCount(7)
-            employees_report_table.setHorizontalHeaderLabels(
-                ["Nome", "Empresa", "Departamento", "Cargo", "Data Admissão", "Status", "Jornada"]
-            )
-            employees_layout.addWidget(employees_report_table)
-
-            # Dados de exemplo para a tabela de funcionários
-            sample_employees_report = [
-                ("teste 01", "teste 01", "TI", "Desenvolvedor", "15/01/2023", "Ativo", "40h/semana"),
-                ("teste 01", "teste 01", "RH", "Analista de RH", "05/03/2022", "Ativo", "40h/semana"),
-                ("teste 01", "teste 01.", "Financeiro", "Contador", "22/08/2021", "Férias", "40h/semana"),
-                ("teste 01", "teste 01", "Marketing", "Gerente de Marketing", "10/05/2020", "Ativo", "40h/semana"),
-                ("teste 01", "teste 01", "Operações", "Supervisor", "03/11/2022", "Afastado", "44h/semana")
-            ]
-            employees_report_table.setRowCount(len(sample_employees_report))
-            for row, (name, company, dept, position, hire_date, status, workload) in enumerate(sample_employees_report):
-                employees_report_table.setItem(row, 0, QTableWidgetItem(name))
-                employees_report_table.setItem(row, 1, QTableWidgetItem(company))
-                employees_report_table.setItem(row, 2, QTableWidgetItem(dept))
-                employees_report_table.setItem(row, 3, QTableWidgetItem(position))
-                employees_report_table.setItem(row, 4, QTableWidgetItem(hire_date))
-
-                status_item = QTableWidgetItem(status)
-                if status == "Ativo":
-                    status_item.setForeground(QColor("#28a745"))
-                elif status == "Férias":
-                    status_item.setForeground(QColor("#fd7e14"))
-                elif status == "Afastado":
-                    status_item.setForeground(QColor("#dc3545"))
-                employees_report_table.setItem(row, 5, status_item)
-
-                employees_report_table.setItem(row, 6, QTableWidgetItem(workload))
-
-            employees_report_export = QHBoxLayout()
-            employees_report_csv = QPushButton("Exportar CSV")
-            employees_report_csv.setStyleSheet("background-color: #6c757d;")
-
-            employees_report_txt = QPushButton("Exportar TXT")
-            employees_report_txt.setStyleSheet("background-color: #6c757d;")
-
-            employees_report_pdf = QPushButton("Exportar PDF")
-            employees_report_pdf.setStyleSheet("background-color: #6c757d;")
-
-            employees_report_export.addWidget(employees_report_csv)
-            employees_report_export.addWidget(employees_report_txt)
-            employees_report_export.addWidget(employees_report_pdf)
-            employees_report_export.addStretch()
-            employees_layout.addLayout(employees_report_export)
-
-            # Adiciona as tabs ao QTabWidget
             tabs.addTab(hours_tab, "Horas Trabalhadas")
-            tabs.addTab(absences_tab, "Faltas e Atrasos")
-            tabs.addTab(employees_tab, "Funcionários")
-
             layout.addWidget(tabs)
+            self.stack.addWidget(reports_widget)
 
+            # ----- Nova Aba "Funcionário" -----
+            funcionario_tab = QWidget()
+            funcionario_layout = QVBoxLayout(funcionario_tab)
+
+            # Grupo de Filtros para Relatório Individual
+            funcionario_filter = QGroupBox("Filtros")
+            funcionario_filter_layout = QFormLayout(funcionario_filter)
+
+            # Combobox de Empresa (para filtrar a empresa)
+            empresa_combo = QComboBox()
+            empresa_combo.addItem("Não Selecionado")
+            empresas = self.consultar_registros("cadastro_empresa")
+            if empresas:
+                for i in empresas:
+                    codigo = i[0]
+                    nome = i[1]
+                    empresa_combo.addItem(f"{codigo} - {nome}")
+            funcionario_filter_layout.addRow("Empresa:", empresa_combo)
+
+            # Combobox para pesquisar Funcionário
+            # Aqui, armazenamos o CPF (usado para o join com a tabela ponto) como item data
+            funcionario_combo = QComboBox()
+            funcionario_combo.addItem("Selecione o Funcionário")
+            funcionarios = self.consultar_registros("cadastro_funcionario")
+            if funcionarios:
+                for f in funcionarios:
+                    # f[0] é o id, f[2] é o nome e f[3] (assumindo a ordem) é o CPF
+                    codigo = f[0]
+                    nome = f[2]
+                    cpf = f[3]  # Certifique-se de que a consulta retorne o CPF na posição correta
+                    funcionario_combo.addItem(f"{codigo} - {nome}", cpf)
+            funcionario_filter_layout.addRow("Funcionário:", funcionario_combo)
+
+            # Opções de Data (mesmas que na aba de Horas Trabalhadas)
+            func_date_from = QDateEdit()
+            func_date_from.setDate(QDate.currentDate().addDays(-30))
+            func_date_from.setCalendarPopup(True)
+            funcionario_filter_layout.addRow("Data Inicial:", func_date_from)
+
+            func_date_to = QDateEdit()
+            func_date_to.setDate(QDate.currentDate())
+            func_date_to.setCalendarPopup(True)
+            funcionario_filter_layout.addRow("Data Final:", func_date_to)
+
+            # Botão para gerar relatório do Funcionário
+            func_generate = QPushButton("Gerar Relatório")
+            funcionario_filter_layout.addRow("", func_generate)
+
+            funcionario_layout.addWidget(funcionario_filter)
+
+            # Adiciona a aba "Relatório Individual" ao QTabWidget
+            tabs.addTab(funcionario_tab, "Relatório Individual")
+
+            # Função que gera o relatório individual com os filtros e salva um arquivo CSV
+            def gerar_relatorio_individual():
+                try:
+                    import datetime
+                    # Obtém os filtros
+                    empresa_sel = empresa_combo.currentText()
+                    company_code = None
+                    if empresa_sel != "Não Selecionado":
+                        company_code = int(empresa_sel.split(" - ")[0])
+                    employee_cpf = None
+                    if funcionario_combo.currentIndex() > 0:
+                        employee_cpf = funcionario_combo.itemData(funcionario_combo.currentIndex())
+                    date_from = func_date_from.date().toString("yyyy-MM-dd") + " 00:00:00"
+                    date_to = func_date_to.date().toString("yyyy-MM-dd") + " 23:59:59"
+
+                    # Monta a consulta (baseada na função visualiza_ponto, com filtros adicionais)
+                    query = """
+                        SELECT p.id, f.CPF, f.nome, substr(p.timestamp, 1, 10) as data_registro,
+                               substr(p.timestamp, 12, 8) as horario, p.tipo
+                        FROM ponto p
+                        JOIN cadastro_funcionario f ON p.cpf = f.CPF
+                        WHERE p.timestamp BETWEEN ? AND ?
+                    """
+                    params = [date_from, date_to]
+                    if company_code is not None:
+                        query += " AND p.codigo_empresa = ?"
+                        params.append(company_code)
+                    if employee_cpf is not None:
+                        query += " AND f.CPF = ?"
+                        params.append(employee_cpf)
+                    query += " ORDER BY f.nome, p.timestamp"
+
+                    self.cursor.execute(query, params)
+                    registros = self.cursor.fetchall()
+                    if not registros:
+                        QMessageBox.information(self, "Aviso",
+                                                "Nenhum registro encontrado para os filtros selecionados.")
+                        return
+
+                    # Agrupa os registros por (CPF, nome, data)
+                    registros_por_pessoa_dia = {}
+                    for ponto_id, CPF, nome, data_registro, horario, tipo in registros:
+                        chave = (CPF, nome, data_registro)
+                        if chave not in registros_por_pessoa_dia:
+                            registros_por_pessoa_dia[chave] = []
+                        registros_por_pessoa_dia[chave].append((horario, tipo))
+
+                    def str_to_time(t_str):
+                        return datetime.datetime.strptime(t_str, "%H:%M:%S").time()
+
+                    def seleciona_registro(registros, target_time, expected_type):
+                        candidatos = [r for r in registros if r[1] == expected_type]
+                        if not candidatos:
+                            return "00:00:00"
+                        return min(candidatos, key=lambda r: abs(
+                            datetime.datetime.combine(datetime.date.today(), str_to_time(r[0])) -
+                            datetime.datetime.combine(datetime.date.today(), target_time)))[0]
+
+                    resultado = []
+                    for (CPF, nome, data_registro), regs in registros_por_pessoa_dia.items():
+                        registros_manha = [r for r in regs if r[0] < "13:00:00"]
+                        registros_tarde = [r for r in regs if r[0] >= "13:00:00"]
+                        entrada_manha = seleciona_registro(registros_manha, datetime.time(8, 0, 0), 'entrada')
+                        saida_manha = seleciona_registro(registros_manha, datetime.time(12, 0, 0), 'saida')
+                        entrada_tarde = seleciona_registro(registros_tarde, datetime.time(13, 0, 0), 'entrada')
+                        saida_tarde = seleciona_registro(registros_tarde, datetime.time(18, 0, 0), 'saida')
+                        if '-' in data_registro:
+                            ano_db, mes_db, dia_db = data_registro.split('-')
+                            data_formatada = f"{dia_db}/{mes_db}/{ano_db}"
+                        else:
+                            data_formatada = data_registro
+                        resultado.append(
+                            (CPF, nome, data_formatada, entrada_manha, saida_manha, entrada_tarde, saida_tarde))
+                    resultado.sort(key=lambda x: (datetime.datetime.strptime(x[2], '%d/%m/%Y'), x[1]))
+
+                    # Monta o conteúdo do relatório em texto (pode ser formatado conforme sua necessidade)
+                    texto = "CPF;Nome;Data;Entrada Manhã;Saída Manhã;Entrada Tarde;Saída Tarde\n"
+                    for linha in resultado:
+                        texto += ";".join(linha) + "\n"
+
+                    # Cria um diálogo de prévia com um QTextEdit para exibir o relatório
+                    preview_dialog = QDialog(self)
+                    preview_dialog.setWindowTitle("Prévia do Relatório Individual")
+                    dlg_layout = QVBoxLayout(preview_dialog)
+                    txt_preview = QTextEdit()
+                    txt_preview.setReadOnly(True)
+                    txt_preview.setPlainText(texto)
+                    dlg_layout.addWidget(txt_preview)
+                    button_box = QDialogButtonBox(
+                        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+                    dlg_layout.addWidget(button_box)
+                    button_box.accepted.connect(preview_dialog.accept)
+                    button_box.rejected.connect(preview_dialog.reject)
+
+                    # Se o usuário confirmar a prévia, solicita salvar o arquivo
+                    if preview_dialog.exec() == QDialog.DialogCode.Accepted:
+                        file_path, _ = QFileDialog.getSaveFileName(self, "Salvar Relatório Individual", "",
+                                                                   "CSV Files (*.csv);;All Files (*)")
+                        if file_path:
+                            import csv
+                            with open(file_path, 'w', newline='', encoding='utf-8') as f:
+                                writer = csv.writer(f, delimiter=';')
+                                writer.writerow(["CPF", "Nome", "Data", "Entrada Manhã", "Saída Manhã", "Entrada Tarde",
+                                                 "Saída Tarde"])
+                                for linha in resultado:
+                                    writer.writerow(linha)
+                            QMessageBox.information(self, "Sucesso", f"Relatório salvo com sucesso em {file_path}")
+
+                except Exception as e:
+                    print(e)
+            # Adiciona o QTabWidget ao layout principal
+            func_generate.clicked.connect(gerar_relatorio_individual)
+            layout.addWidget(tabs)
             self.stack.addWidget(reports_widget)
 
         except Exception as e:
@@ -2662,6 +2772,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                 "Erro de Processamento",
                 f"Erro ao carregar informações dos relatórios: {str(e)}"
             )
+
 
     def init_settings_screen(self):
         settings_widget = QWidget()
