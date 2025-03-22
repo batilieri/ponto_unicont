@@ -2652,9 +2652,14 @@ class MainWindow(QMainWindow, BancoSQLite):
             tabs.addTab(funcionario_tab, "Relatório Individual")
 
             # Função que gera o relatório individual com os filtros e salva um arquivo CSV
+            # Função que gera o relatório individual com os filtros e salva um arquivo CSV
             def gerar_relatorio_individual():
                 try:
                     import datetime
+                    from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView, QPushButton
+                    from PyQt6.QtPrintSupport import QPrintDialog, QPrinter
+                    from PyQt6.QtGui import QTextDocument
+
                     # Obtém os filtros
                     empresa_sel = empresa_combo.currentText()
                     company_code = None
@@ -2711,34 +2716,105 @@ class MainWindow(QMainWindow, BancoSQLite):
 
                     resultado = []
                     for (CPF, nome, data_registro), regs in registros_por_pessoa_dia.items():
-                        registros_manha = [r for r in regs if r[0] < "13:00:00"]
-                        registros_tarde = [r for r in regs if r[0] >= "13:00:00"]
-                        entrada_manha = seleciona_registro(registros_manha, datetime.time(8, 0, 0), 'entrada')
-                        saida_manha = seleciona_registro(registros_manha, datetime.time(12, 0, 0), 'saida')
-                        entrada_tarde = seleciona_registro(registros_tarde, datetime.time(13, 0, 0), 'entrada')
-                        saida_tarde = seleciona_registro(registros_tarde, datetime.time(18, 0, 0), 'saida')
+                        # Ordena os registros por horário
+                        regs.sort(key=lambda x: str_to_time(x[0]))
+
+                        # Identifica entradas e saídas automaticamente
+                        entradas_saidas = []
+                        for i, (horario, tipo) in enumerate(regs):
+                            if tipo == 'entrada':
+                                entradas_saidas.append(("Entrada", horario))
+                            elif tipo == 'saida':
+                                entradas_saidas.append(("Saída", horario))
+
+                        # Preenche os registros de entrada e saída
+                        registros_formatados = []
+                        for i in range(0, len(entradas_saidas), 2):
+                            entrada = entradas_saidas[i][1] if i < len(entradas_saidas) else "00:00:00"
+                            saida = entradas_saidas[i + 1][1] if i + 1 < len(entradas_saidas) else "00:00:00"
+                            registros_formatados.append(f"Entrada: {entrada} | Saída: {saida}")
+
                         if '-' in data_registro:
                             ano_db, mes_db, dia_db = data_registro.split('-')
                             data_formatada = f"{dia_db}/{mes_db}/{ano_db}"
                         else:
                             data_formatada = data_registro
-                        resultado.append(
-                            (CPF, nome, data_formatada, entrada_manha, saida_manha, entrada_tarde, saida_tarde))
-                    resultado.sort(key=lambda x: (datetime.datetime.strptime(x[2], '%d/%m/%Y'), x[1]))
 
-                    # Monta o conteúdo do relatório em texto (pode ser formatado conforme sua necessidade)
-                    texto = "CPF;Nome;Data;Entrada Manhã;Saída Manhã;Entrada Tarde;Saída Tarde\n"
-                    for linha in resultado:
-                        texto += ";".join(linha) + "\n"
+                        resultado.append((CPF, nome, data_formatada, " | ".join(registros_formatados)))
 
-                    # Cria um diálogo de prévia com um QTextEdit para exibir o relatório
+                    # Cria um diálogo de prévia com uma tabela para exibir o relatório
                     preview_dialog = QDialog(self)
                     preview_dialog.setWindowTitle("Prévia do Relatório Individual")
+                    preview_dialog.resize(1000, 600)  # Aumenta o tamanho da janela de prévia
                     dlg_layout = QVBoxLayout(preview_dialog)
-                    txt_preview = QTextEdit()
-                    txt_preview.setReadOnly(True)
-                    txt_preview.setPlainText(texto)
-                    dlg_layout.addWidget(txt_preview)
+
+                    # Cabeçalho do relatório
+                    cabecalho = QLabel(f"""
+                        <h2>Relatório de Ponto</h2>
+                        <b>Empresa:</b> {empresa_sel if empresa_sel != "Não Selecionado" else "Todas"}<br>
+                        <b>Funcionário:</b> {funcionario_combo.currentText() if funcionario_combo.currentIndex() > 0 else "Todos"}<br>
+                        <b>Período:</b> {func_date_from.date().toString("dd/MM/yyyy")} a {func_date_to.date().toString("dd/MM/yyyy")}<br>
+                        <hr>
+                    """)
+                    cabecalho.setStyleSheet("font-size: 12pt;")
+                    dlg_layout.addWidget(cabecalho)
+
+                    # Tabela para exibir os registros
+                    tabela = QTableWidget()
+                    tabela.setColumnCount(4)
+                    tabela.setHorizontalHeaderLabels(["CPF", "Nome", "Data", "Registros de Ponto"])
+                    tabela.setRowCount(len(resultado))
+
+                    # Preenche a tabela com os dados
+                    for i, linha in enumerate(resultado):
+                        for j, valor in enumerate(linha):
+                            item = QTableWidgetItem(valor)
+                            item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)  # Torna os itens não editáveis
+                            tabela.setItem(i, j, item)
+
+                    # Ajusta o tamanho das colunas
+                    tabela.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+                    dlg_layout.addWidget(tabela)
+
+                    # Botão de impressão
+                    btn_imprimir = QPushButton("Imprimir Relatório")
+                    dlg_layout.addWidget(btn_imprimir)
+
+                    def imprimir_relatorio():
+                        printer = QPrinter()
+                        dialog = QPrintDialog(printer, self)
+                        if dialog.exec() == QDialog.DialogCode.Accepted:
+                            documento = QTextDocument()
+                            html = f"""
+                                <h2>Relatório de Ponto</h2>
+                                <b>Empresa:</b> {empresa_sel if empresa_sel != "Não Selecionado" else "Todas"}<br>
+                                <b>Funcionário:</b> {funcionario_combo.currentText() if funcionario_combo.currentIndex() > 0 else "Todos"}<br>
+                                <b>Período:</b> {func_date_from.date().toString("dd/MM/yyyy")} a {func_date_to.date().toString("dd/MM/yyyy")}<br>
+                                <hr>
+                                <table border="1" cellpadding="5">
+                                    <tr>
+                                        <th>CPF</th>
+                                        <th>Nome</th>
+                                        <th>Data</th>
+                                        <th>Registros de Ponto</th>
+                                    </tr>
+                            """
+                            for linha in resultado:
+                                html += f"""
+                                    <tr>
+                                        <td>{linha[0]}</td>
+                                        <td>{linha[1]}</td>
+                                        <td>{linha[2]}</td>
+                                        <td>{linha[3]}</td>
+                                    </tr>
+                                """
+                            html += "</table>"
+                            documento.setHtml(html)
+                            documento.print_(printer)
+
+                    btn_imprimir.clicked.connect(imprimir_relatorio)
+
+                    # Botões de ação
                     button_box = QDialogButtonBox(
                         QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
                     dlg_layout.addWidget(button_box)
@@ -2753,8 +2829,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                             import csv
                             with open(file_path, 'w', newline='', encoding='utf-8') as f:
                                 writer = csv.writer(f, delimiter=';')
-                                writer.writerow(["CPF", "Nome", "Data", "Entrada Manhã", "Saída Manhã", "Entrada Tarde",
-                                                 "Saída Tarde"])
+                                writer.writerow(["CPF", "Nome", "Data", "Registros de Ponto"])
                                 for linha in resultado:
                                     writer.writerow(linha)
                             QMessageBox.information(self, "Sucesso", f"Relatório salvo com sucesso em {file_path}")
