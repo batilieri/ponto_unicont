@@ -2810,7 +2810,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                                 """
                             html += "</table>"
                             documento.setHtml(html)
-                            documento.print_(printer)
+                            documento.print(printer)
 
                     btn_imprimir.clicked.connect(imprimir_relatorio)
 
