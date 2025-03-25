@@ -2577,6 +2577,27 @@ class MainWindow(QMainWindow, BancoSQLite):
                         current_y += 20
                         footer_text = f"Data de impressão: {QDate.currentDate().toString('dd/MM/yyyy')}"
                         painter.drawText(int(x_margin), int(current_y), footer_text)
+
+                        # Após imprimir o rodapé (footer_text), acrescente algo assim:
+
+                        current_y += 40
+
+                        # Desenha o título "Responsável:"
+                        painter.drawText(x_margin, current_y, "Responsável:")
+                        # Desenha a linha para assinatura (por exemplo, 200 pixels de largura)
+                        line_start_x = x_margin + 100
+                        line_end_x = line_start_x + 200
+                        painter.drawLine(line_start_x, current_y, line_end_x, current_y)
+
+                        current_y += 40
+
+                        # Desenha o título "Supervisor:"
+                        painter.drawText(x_margin, current_y, "Supervisor:")
+                        # Linha para assinatura
+                        line_start_x = x_margin + 100
+                        line_end_x = line_start_x + 200
+                        painter.drawLine(line_start_x, current_y, line_end_x, current_y)
+
                         painter.end()
                         QMessageBox.information(self, "Sucesso", "Relatório enviado para impressão.")
                 except Exception as e:
@@ -2809,6 +2830,22 @@ class MainWindow(QMainWindow, BancoSQLite):
                                     </tr>
                                 """
                             html += "</table>"
+                            html += """
+                            <br><br>
+                            <table style="width:60%; margin:40px auto;">
+                                <tr>
+                                    <td style="width:50%; text-align:center; padding-right:40px;">
+                                        __________________________<br>
+                                        Colaborador
+                                    </td>
+                                    <td style="width:50%; text-align:center; padding-left:40px;">
+                                        __________________________<br>
+                                        Supervisor
+                                    </td>
+                                </tr>
+                            </table>
+                            """
+
                             documento.setHtml(html)
                             documento.print(printer)
 
