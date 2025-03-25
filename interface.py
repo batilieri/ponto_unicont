@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVB
                              QDateEdit, QComboBox, QTableWidget, QTableWidgetItem, QFileDialog,
                              QGroupBox, QStackedWidget,
                              QCheckBox, QSpinBox, QMessageBox, QRadioButton, QToolBar, QGridLayout, QDialog,
-                             QInputDialog, QHeaderView, QTextEdit, QDialogButtonBox)
+                             QInputDialog, QHeaderView, QTextEdit, QDialogButtonBox, QStyle, QToolTip)
 from banco.bancoSQlite import BancoSQLite, logger
 
 from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem, QMessageBox
@@ -1754,20 +1754,6 @@ class MainWindow(QMainWindow, BancoSQLite):
             self.exporta_data_final.setCalendarPopup(True)
             export_form.addRow("Data Inicial:", self.exporta_data_final)
 
-            export_format_group = QGroupBox("Formato de Exportação")
-            export_format_layout = QVBoxLayout(export_format_group)
-
-            csv_radio = QRadioButton("CSV")
-            csv_radio.setChecked(True)
-            txt_radio = QRadioButton("TXT")
-            excel_radio = QRadioButton("Excel (XLSX)")
-
-            export_format_layout.addWidget(csv_radio)
-            export_format_layout.addWidget(txt_radio)
-            export_format_layout.addWidget(excel_radio)
-
-            export_form.addRow("", export_format_group)
-
             export_btn = QPushButton("Exportar Dados")
             export_btn.clicked.connect(self.exportar_ponto_sci)
             export_form.addRow("", export_btn)
@@ -1775,7 +1761,9 @@ class MainWindow(QMainWindow, BancoSQLite):
             export_layout.addWidget(export_group)
             export_layout.addStretch()
 
-            # Tab de Visualização ---------------------------------------------
+            # -------------------------------------------------------------
+            # Tab de Visualização
+            # -------------------------------------------------------------
             view_tab = QWidget()
             view_layout = QVBoxLayout(view_tab)
 
@@ -1783,11 +1771,15 @@ class MainWindow(QMainWindow, BancoSQLite):
             view_filters = QGroupBox("Filtros")
             view_filters_layout = QHBoxLayout(view_filters)
 
+            # Ajustes para aproximar os widgets
+            view_filters_layout.setContentsMargins(5, 5, 5, 5)  # Ajuste conforme necessário
+            view_filters_layout.setSpacing(5)  # Espaçamento entre widgets
+
             # Adicionando os widgets ao layout
             view_filters_layout.addWidget(QLabel("Funcionário:"))
             funcionarios = self.visualizar_tabela("cadastro_funcionario")
             self.filtra_funcionario = QComboBox()
-            self.filtra_funcionario.addItem(f"Nenhum selecionado")
+            self.filtra_funcionario.addItem("Nenhum selecionado")
             for fun in funcionarios:
                 cod = fun[1]
                 name = fun[2]
@@ -1801,33 +1793,48 @@ class MainWindow(QMainWindow, BancoSQLite):
             view_date.setDate(QDate.currentDate())
             view_date.setCalendarPopup(True)
             view_filters_layout.addWidget(view_date)
-            print_btn = QPushButton("Imprimir")
+
+            print_btn = QPushButton("🖨️ Imprimir")  # Emoji de impressora
             view_filters_layout.addWidget(print_btn)
+            print_btn.setToolTip("Imprimir Tabela")
             print_btn.clicked.connect(lambda: self.imprimir_tabela(view_table))
-            # Criando o botão novamente e adicionando ao layout
-            view_filter_btn = QPushButton("Filtrar")
+
+            # Estilização do tooltip
+            print_btn.setStyleSheet("""
+                QToolTip {
+                    background-color: black;
+                    color: white;
+                    border: none;
+                    padding: 2px;
+                }
+            """)
+
+            view_filter_btn = QPushButton("🏷️ Filtrar")
             view_filters_layout.addWidget(view_filter_btn)
             # Conectar o botão de filtro à função de atualização com funcionário e data
-            view_filter_btn.clicked.connect(lambda: self.update_table_ponto(view_table,
-                                                                            view_date, self.filtra_funcionario))
+            view_filter_btn.clicked.connect(
+                lambda: self.update_table_ponto(view_table, view_date, self.filtra_funcionario)
+            )
 
             # Adicionando o grupo de filtros ao layout principal
             view_layout.addWidget(view_filters)
-            # Botão para imprimir a tabela
 
             # Tabela de ponto
             self.view_table = TimesheetTable(self)
             view_table = self.view_table
             view_table.setColumnCount(7)
             view_table.setHorizontalHeaderLabels(
-                ["CPF", "Funcionário", "Data", "Entrada", "Saída Almoço", "Retorno Almoço", "Saída"])
+                ["CPF", "Funcionário", "Data", "Entrada", "Saída Almoço", "Retorno Almoço", "Saída"]
+            )
+
             view_Date_filter = view_date.date().toString("MM/yyyy")
             # Dados de exemplo
             sample_timesheet = self.visualiza_ponto(view_Date_filter)
 
             view_table.setRowCount(len(sample_timesheet))
+            view_table.setSortingEnabled(True)
             # Definindo largura fixa para cada coluna
-            view_table.setColumnWidth(0, 150)  # Data
+            view_table.setColumnWidth(0, 150)  # CPF
             view_table.setColumnWidth(1, 350)  # Funcionário
             view_table.setColumnWidth(2, 100)  # Data
             view_table.setColumnWidth(3, 120)  # Entrada
@@ -1852,9 +1859,11 @@ class MainWindow(QMainWindow, BancoSQLite):
                 view_table.setItem(row, 6, format_cell(exit_time))
 
             view_layout.addWidget(view_table)
-            # self.view_table = TimesheetTable(self)
+
+            # Atalho para exclusão (Ctrl+Alt+D)
             self.shortcut_delete = QShortcut(QKeySequence("Ctrl+Alt+D"), self)
             self.shortcut_delete.activated.connect(self.confirm_delete_entries)
+
             # Adicionar as tabs
             tabs.addTab(import_tab, "Importação")
             tabs.addTab(view_tab, "Visualização")
@@ -1867,6 +1876,7 @@ class MainWindow(QMainWindow, BancoSQLite):
             self.date_from = date_from
             self.date_to = date_to
             self.format_combo = format_combo
+
         except Exception as e:
             logger.error("Erro", e)
 
@@ -1883,7 +1893,7 @@ class MainWindow(QMainWindow, BancoSQLite):
                 if not painter.begin(printer):
                     raise Exception("Falha ao iniciar o processo de impressão.")
 
-                scale_factor = 1.2
+                scale_factor = 1.1
                 painter.scale(scale_factor, scale_factor)
 
                 title_font = QFont("Arial", 14, QFont.Weight.Bold)
@@ -1907,6 +1917,9 @@ class MainWindow(QMainWindow, BancoSQLite):
 
                 num_cols = table.columnCount()
                 weights = [1] * num_cols
+                # Ajustando o peso da coluna do funcionário para 3 vezes maior
+                if num_cols > 1:
+                    weights[1] = 3
                 total_weight = sum(weights)
                 table_width = page_rect.width() - 2 * x_margin
 
@@ -2512,6 +2525,7 @@ class MainWindow(QMainWindow, BancoSQLite):
             hours_layout.addWidget(hours_filter)
             # Tabela de horas
             hours_table = QTableWidget()
+            hours_table.setSortingEnabled(True)
             hours_table.setColumnCount(6)
             hours_table.setHorizontalHeaderLabels(
                 ["Funcionário", "Empresa", "Data", "Total Horas", "Horas Extras", "Horas Faltantes"]
