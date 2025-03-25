@@ -1801,7 +1801,9 @@ class MainWindow(QMainWindow, BancoSQLite):
             view_date.setDate(QDate.currentDate())
             view_date.setCalendarPopup(True)
             view_filters_layout.addWidget(view_date)
-
+            print_btn = QPushButton("Imprimir")
+            view_filters_layout.addWidget(print_btn)
+            print_btn.clicked.connect(lambda: self.imprimir_tabela(view_table))
             # Criando o botão novamente e adicionando ao layout
             view_filter_btn = QPushButton("Filtrar")
             view_filters_layout.addWidget(view_filter_btn)
@@ -1811,6 +1813,7 @@ class MainWindow(QMainWindow, BancoSQLite):
 
             # Adicionando o grupo de filtros ao layout principal
             view_layout.addWidget(view_filters)
+            # Botão para imprimir a tabela
 
             # Tabela de ponto
             self.view_table = TimesheetTable(self)
@@ -1866,6 +1869,101 @@ class MainWindow(QMainWindow, BancoSQLite):
             self.format_combo = format_combo
         except Exception as e:
             logger.error("Erro", e)
+
+    def imprimir_tabela(self, table):
+        if table.rowCount() == 0:
+            QMessageBox.warning(self, "Aviso", "Não há dados para imprimir.")
+            return
+
+        try:
+            printer = QPrinter()
+            print_dialog = QPrintDialog(printer, self)
+            if print_dialog.exec() > 0:
+                painter = QPainter()
+                if not painter.begin(printer):
+                    raise Exception("Falha ao iniciar o processo de impressão.")
+
+                scale_factor = 1.2
+                painter.scale(scale_factor, scale_factor)
+
+                title_font = QFont("Arial", 14, QFont.Weight.Bold)
+                header_font = QFont("Arial", 8, QFont.Weight.Bold)
+                row_font = QFont("Arial", 8)
+
+                page_rect = printer.pageLayout().paintRect(QPageLayout.Unit.Point)
+
+                x_margin = 20
+                y_margin = 20
+                current_y = y_margin
+
+                painter.setFont(title_font)
+                title_text = "RELATÓRIO"
+                title_rect = QRectF(x_margin, current_y, page_rect.width() - 2 * x_margin, 30)
+                painter.drawText(title_rect, Qt.AlignmentFlag.AlignCenter, title_text)
+                current_y += 40
+
+                painter.setFont(row_font)
+                current_y += 20
+
+                num_cols = table.columnCount()
+                weights = [1] * num_cols
+                total_weight = sum(weights)
+                table_width = page_rect.width() - 2 * x_margin
+
+                header_metrics = QFontMetrics(header_font)
+                header_height = header_metrics.height() + 10
+                row_metrics = QFontMetrics(row_font)
+                row_height = row_metrics.height() + 8
+
+                def print_table_header(y_position):
+                    painter.setFont(header_font)
+                    current_x = x_margin
+                    for col in range(num_cols):
+                        col_width = (weights[col] / total_weight) * table_width
+                        header_text = table.horizontalHeaderItem(col).text()
+                        rect = QRectF(current_x, y_position, col_width, header_height)
+                        painter.drawRect(rect)
+                        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, header_text)
+                        current_x += col_width
+                    return y_position + header_height
+
+                current_y = print_table_header(current_y)
+                painter.setFont(row_font)
+
+                for row in range(table.rowCount()):
+                    if current_y + row_height > page_rect.height() - y_margin:
+                        printer.newPage()
+                        current_y = y_margin
+                        current_y = print_table_header(current_y)
+                        painter.setFont(row_font)
+                    current_x = x_margin
+                    for col in range(num_cols):
+                        col_width = (weights[col] / total_weight) * table_width
+                        rect = QRectF(current_x, current_y, col_width, row_height)
+                        painter.drawRect(rect)
+                        item = table.item(row, col)
+                        text = item.text() if item else ""
+                        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
+                        current_x += col_width
+                    current_y += row_height
+
+                current_y += 20
+                footer_text = f"Data de impressão: {QDate.currentDate().toString('dd/MM/yyyy')}"
+                painter.drawText(int(x_margin), int(current_y), footer_text)
+
+                current_y += 40
+                painter.drawText(x_margin, current_y, "Responsável:")
+                painter.drawLine(x_margin + 100, current_y, x_margin + 300, current_y)
+
+                current_y += 40
+                painter.drawText(x_margin, current_y, "Supervisor:")
+                painter.drawLine(x_margin + 100, current_y, x_margin + 300, current_y)
+
+                painter.end()
+                QMessageBox.information(self, "Sucesso", "Tabela enviada para impressão.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", str(e))
 
     def confirm_delete_entries(self):
         try:
